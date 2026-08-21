@@ -84,6 +84,12 @@
     display:flex;align-items:center;justify-content:center;transition:.12s;
   }
   .tick:hover{border-color:var(--accent)}
+  /* 指で触る端末では、見た目は同じまま当たり判定だけ広げる（押し間違い対策） */
+  @media (pointer:coarse){
+    .task{padding:13px 12px}
+    .tick{width:26px;height:26px;position:relative}
+    .tick::after{content:"";position:absolute;inset:-9px}
+  }
   .tick svg{width:13px;height:13px;opacity:0;transition:.12s}
   .tick:hover svg{opacity:.4}
   .body{flex:1;min-width:0}
@@ -380,7 +386,7 @@ function toast(msg, undoFn){
   else u.classList.add("hide");
   $("toast").classList.add("on");
   clearTimeout(toast._t);
-  toast._t = setTimeout(hideToast, undoFn ? 6000 : 2600);
+  toast._t = setTimeout(hideToast, undoFn ? 12000 : 2600);
 }
 function hideToast(){ $("toast").classList.remove("on"); }
 
@@ -507,12 +513,20 @@ function renderToday(L2, tl){
   var dt = S.done.filter(function(x){ return new Date(x.done_at) >= today0(); });
   if(dt.length){
     L2.appendChild(sec("今日 片付けた分", dt.length));
-    dt.forEach(function(x){
-      var r = el("div","donerow");
-      r.appendChild(el("span",null,x.title));
-      L2.appendChild(r);
-    });
+    dt.forEach(function(x){ L2.appendChild(doneRow(x.title, x.task_id)); });
   }
+}
+
+/* 完了の取り消し。押し間違いは必ず起きるので、いつでも戻せるようにしておく */
+function doneRow(title, taskId){
+  var r = el("div","donerow");
+  r.appendChild(el("span",null,title));
+  if(taskId){
+    var u = el("button",null,"戻す");
+    u.onclick = function(){ patch(taskId, {status:"open"}); toast("戻しました"); };
+    r.appendChild(u);
+  }
+  return r;
 }
 
 function renderWaiting(L2, wl){
@@ -561,6 +575,17 @@ function renderAll(L2){
       L2.appendChild(sec(b[0], b[1].length, "d:"+b[0]));
       if(!S.closed["d:"+b[0]]) b[1].sort(byPri).forEach(function(t){ L2.appendChild(card(t)); });
     });
+  }
+
+  /* 直近1週間の完了。前の日の押し間違いもここから戻せる */
+  var recent = S.done.filter(function(x){
+    return (Date.now() - new Date(x.done_at).getTime()) < 7*86400000;
+  });
+  if(recent.length){
+    var dk = "donerecent";
+    if(S.closed[dk]===undefined) S.closed[dk] = true;
+    L2.appendChild(sec("完了（直近1週間）", recent.length, dk));
+    if(!S.closed[dk]) recent.forEach(function(x){ L2.appendChild(doneRow(x.title, x.task_id)); });
   }
 
   if(slp.length){
