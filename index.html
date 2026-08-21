@@ -420,16 +420,18 @@ function fmtDT(iso){
   var d=new Date(iso), p2=function(x){ return (100+x+"").slice(1); };
   return d.getFullYear()+"/"+p2(d.getMonth()+1)+"/"+p2(d.getDate())+" "+p2(d.getHours())+":"+p2(d.getMinutes());
 }
+/* 「今日／昨日」は24時間ではなくカレンダーの日で数える。人の感覚に合わせる */
+function calAgo(iso){ var d=new Date(iso); d.setHours(0,0,0,0); return Math.round((today0()-d)/86400000); }
 function updLabel(iso){
-  var n=daysSince(iso);
-  if(n===null) return null;
+  if(!iso) return null;
+  var n=calAgo(iso);
   if(n<=0) return "更新 今日";
   if(n===1) return "更新 昨日";
   return "更新 "+fmtMd(iso)+"・"+n+"日前";
 }
 function dayHead(iso){
-  var n=daysSince(iso);
-  if(n===null) return "更新日なし";
+  if(!iso) return "更新日なし";
+  var n=calAgo(iso);
   if(n<=0) return "今日";
   if(n===1) return "昨日";
   return fmtMd(iso)+"（"+n+"日前）";
@@ -560,7 +562,7 @@ function card(t,opt){
   add(el("span","proj",t.project));
   var dl=dueLabel(t); if(dl) add(el("span","due num"+(dl.over?" over":""),dl.s));
   var ul=updLabel(t.updated_at);
-  if(ul) add(el("span","upd num"+(daysSince(t.updated_at)<=1?" fresh":""),ul));
+  if(ul) add(el("span","upd num"+(calAgo(t.updated_at)<=1?" fresh":""),ul));
   if(t.status==="waiting"&&t.waiting_for){
     var ds=daysSince(t.updated_at);
     add(el("span","wait","待ち "+t.waiting_for+(ds>0?"（"+ds+"日）":"")));
