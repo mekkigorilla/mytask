@@ -238,6 +238,44 @@ header{
 .seg button.on{background:var(--card);border-color:var(--dye-2);color:var(--dye-2);font-weight:700}
 
 /* 再開プロンプト：貼り付けて使うテキストなので等幅で見せる */
+/* ---------- まとめ（見取り図） ---------- */
+.gcard{
+  background:var(--card);border:1px solid var(--rule);border-radius:10px;
+  padding:15px 16px;margin-bottom:10px;position:relative;overflow:hidden;
+}
+.gcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--dye-3)}
+.ghead{display:flex;align-items:baseline;gap:9px;margin-bottom:3px}
+.gcode{font-size:10.5px;font-weight:700;letter-spacing:.14em;color:var(--ink-3)}
+.gttl{font-size:14.5px;font-weight:700;letter-spacing:.01em}
+.gwt{margin-left:auto;font-size:11px;color:var(--ink-2)}
+.gwt b{font-size:15px;font-weight:700;color:var(--ink)}
+.gaim{font-size:11.5px;color:var(--ink-2);line-height:1.75;margin-bottom:11px}
+/* ウエイトを帯で見せる。目標そのものの重さが一目で分かる */
+.gbar{height:4px;border-radius:99px;background:var(--rule-soft);overflow:hidden;margin-bottom:11px}
+.gbar i{display:block;height:100%;background:var(--dye-3)}
+.gnums{display:flex;gap:18px}
+.gnums div{display:flex;flex-direction:column;gap:1px}
+.gnums .v{font-size:15px;font-weight:700;line-height:1.1}
+.gnums .k{font-size:10px;letter-spacing:.08em;color:var(--ink-3)}
+
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
+.tbl th{
+  text-align:right;font-size:10px;letter-spacing:.08em;color:var(--ink-3);
+  font-weight:700;padding:0 0 7px;border-bottom:1px solid var(--rule);
+}
+.tbl th:first-child{text-align:left}
+.tbl td{padding:9px 0;border-bottom:1px solid var(--rule-soft);text-align:right}
+.tbl td:first-child{text-align:left;font-weight:500}
+.tbl tbody tr{cursor:pointer}
+.tbl tbody tr:hover td{background:var(--sunk)}
+.tbl .z{color:var(--ink-3);opacity:.45}
+.tbl .warn{color:var(--dye-1);font-weight:700}
+.tbl .gtag{
+  display:inline-block;font-size:9.5px;letter-spacing:.1em;color:var(--ink-3);
+  border:1px solid var(--rule);border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:1px;
+}
+.note{font-size:11.5px;color:var(--ink-3);line-height:1.75;margin:10px 0 0}
+
 .rp-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
 .rp-head label{margin:0}
 .rp-head button{
@@ -332,6 +370,7 @@ header{
         <button data-tab="today" class="on">今日<span class="n num" id="n_today"></span></button>
         <button data-tab="waiting">待ち<span class="n num" id="n_wait"></span></button>
         <button data-tab="all">全部<span class="n num" id="n_all"></span></button>
+        <button data-tab="map">まとめ</button>
       </div>
     </div>
   </header>
@@ -358,7 +397,7 @@ var SB   = "https://neqnasakfyyttdbrgaaq.supabase.co";
 var ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5lcW5hc2FrZnl5dHRkYnJnYWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNzMwNjQsImV4cCI6MjEwMjg0OTA2NH0.LIThEpesQ-YQlXMm8JrfAyGD2rAf2XCUPbB5jhPeMEE";
 var KEY  = "mytask.session.v1";
 
-var S = { tab:"today", tasks:[], done:[], sess:null, allMode:"project", closed:{} };
+var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", closed:{} };
 
 /* ---------- 日付（すべてローカル時刻） ---------- */
 function today0(){ var d=new Date(); d.setHours(0,0,0,0); return d; }
@@ -405,10 +444,12 @@ var T="/rest/v1/mytask_task", L="/rest/v1/mytask_done_log";
 function loadAll(){
   return Promise.all([
     api(T+"?select=*&order=sort_order.asc").then(function(r){ return r.json(); }),
-    api(L+"?select=*&order=done_at.desc&limit=200").then(function(r){ return r.json(); })
+    api(L+"?select=*&order=done_at.desc&limit=200").then(function(r){ return r.json(); }),
+    api("/rest/v1/mytask_goal?select=*&order=sort.asc").then(function(r){ return r.json(); })
   ]).then(function(a){
     S.tasks=Array.isArray(a[0])?a[0]:[];
     S.done =Array.isArray(a[1])?a[1]:[];
+    S.goals=Array.isArray(a[2])?a[2]:[];
   });
 }
 function find(id){ for(var i=0;i<S.tasks.length;i++) if(S.tasks[i].id===id) return S.tasks[i]; return null; }
@@ -488,6 +529,8 @@ function card(t,opt){
   }
   if(t.stuck_reason) add(el("span","pill",t.stuck_reason));
   if(t.postpone_count>0) add(el("span","pill","延期 "+t.postpone_count+"回"));
+  if(t.goal) add(el("span","pill",t.goal));
+  (t.roles||[]).forEach(function(r){ add(el("span","pill",r)); });
   b.appendChild(m);
 
   if(t.next_action){
@@ -563,6 +606,7 @@ function render(){
   if(S.tab==="today")   renderToday(L2,tl);
   if(S.tab==="waiting") renderWaiting(L2,wl);
   if(S.tab==="all")     renderAll(L2);
+  if(S.tab==="map")     renderMap(L2);
 
   var i=0;
   Array.prototype.forEach.call(L2.querySelectorAll(".task"),function(n){
@@ -686,6 +730,105 @@ function byPri(a,b){
   return da-db;
 }
 
+/* ---------- まとめ ----------
+   これで評価される目標方策と、案件別の内訳を1画面に置く。
+   数字は自慢のためではなく、どこが手薄かを見つけるために出す。 */
+function renderMap(L2){
+  var live=S.tasks.filter(function(t){ return t.status!=="done"; });
+
+  L2.appendChild(sec("目標方策（第50期下期・〜12月）"));
+  S.goals.filter(function(g){ return g.kind==="goal"; }).forEach(function(g){
+    var ts=live.filter(function(t){ return t.goal===g.code; });
+    var c=el("div","gcard");
+    var h=el("div","ghead");
+    h.appendChild(el("span","gcode",g.code));
+    h.appendChild(el("span","gttl",g.title));
+    var wt=el("span","gwt");
+    wt.appendChild(el("b",null,String(g.weight)));
+    wt.appendChild(document.createTextNode(" %"));
+    h.appendChild(wt);
+    c.appendChild(h);
+    c.appendChild(el("div","gaim",g.aim||""));
+    var bar=el("div","gbar"); var fill=el("i"); fill.style.width=g.weight+"%"; bar.appendChild(fill);
+    c.appendChild(bar);
+    var n=el("div","gnums");
+    function num(k,v){ var d=el("div"); d.appendChild(el("div","v num",String(v))); d.appendChild(el("div","k",k)); n.appendChild(d); }
+    num("残タスク",ts.length);
+    num("緊急",ts.filter(function(t){ return t.priority===1; }).length);
+    num("待ち",ts.filter(function(t){ return t.status==="waiting"; }).length);
+    num("次の一手なし",ts.filter(function(t){ return !t.next_action; }).length);
+    c.appendChild(n);
+    c.onclick=function(){ S.tab="all"; S.allMode="project"; render(); window.scrollTo(0,0); };
+    L2.appendChild(c);
+  });
+
+  var roles=S.goals.filter(function(g){ return g.kind==="role"; });
+  if(roles.length){
+    L2.appendChild(sec("本人評価"));
+    roles.forEach(function(g){
+      var ts=live.filter(function(t){ return (t.roles||[]).indexOf(g.code)>=0; });
+      var c=el("div","gcard");
+      var h=el("div","ghead");
+      h.appendChild(el("span","gcode",g.code));
+      h.appendChild(el("span","gttl",g.title));
+      var wt=el("span","gwt");
+      wt.appendChild(el("b",null,String(g.weight)));
+      wt.appendChild(document.createTextNode(" %"));
+      h.appendChild(wt);
+      c.appendChild(h);
+      c.appendChild(el("div","gaim",g.aim||""));
+      var n=el("div","gnums");
+      var d=el("div"); d.appendChild(el("div","v num",String(ts.length))); d.appendChild(el("div","k","該当タスク")); n.appendChild(d);
+      c.appendChild(n);
+      L2.appendChild(c);
+    });
+  }
+
+  /* 案件別の一覧 */
+  L2.appendChild(sec("案件別"));
+  var g={}, order=[];
+  live.forEach(function(t){ if(!g[t.project]){ g[t.project]=[]; order.push(t.project); } g[t.project].push(t); });
+  order.sort(function(a,b){
+    var ua=g[a].filter(function(t){return t.priority===1;}).length;
+    var ub=g[b].filter(function(t){return t.priority===1;}).length;
+    return ub-ua || g[b].length-g[a].length;
+  });
+
+  var tb=el("table","tbl");
+  var th=el("tr");
+  ["案件","件数","緊急","待ち","一手なし","再開"].forEach(function(x){ th.appendChild(el("th",null,x)); });
+  var head=el("thead"); head.appendChild(th); tb.appendChild(head);
+  var tbody=el("tbody");
+  order.forEach(function(k){
+    var ts=g[k];
+    var urgent=ts.filter(function(t){return t.priority===1;}).length;
+    var wait=ts.filter(function(t){return t.status==="waiting";}).length;
+    var non=ts.filter(function(t){return !t.next_action;}).length;
+    var rp=ts.filter(function(t){return t.resume_prompt;}).length;
+    var goal=(ts[0]||{}).goal||"";
+    var tr=el("tr");
+    var c1=el("td");
+    c1.appendChild(document.createTextNode(k));
+    if(goal) c1.appendChild(el("span","gtag",goal));
+    tr.appendChild(c1);
+    function cell(v,cls){ var d=el("td",(v===0?"z ":"")+(cls||"")+" num",String(v)); tr.appendChild(d); }
+    cell(ts.length);
+    cell(urgent, urgent?"warn":"");
+    cell(wait);
+    cell(non);
+    cell(rp);
+    tr.onclick=function(){ S.tab="all"; S.allMode="project"; S.closed={}; render(); window.scrollTo(0,0); };
+    tbody.appendChild(tr);
+  });
+  tb.appendChild(tbody);
+  L2.appendChild(tb);
+
+  var nn=live.filter(function(t){ return !t.next_action; }).length;
+  L2.appendChild(el("p","note",
+    "「一手なし」は、次に何をするか決まっていないタスクです。現在 "+nn+" 件。"+
+    "ここが埋まっていないものほど放置されます。「再開」は再開プロンプトが書いてある件数です。"));
+}
+
 /* ---------- 今日の箱に入れる ---------- */
 function openPicker(){
   var body=$("sheetBody"); body.innerHTML="";
@@ -738,6 +881,34 @@ function openSheet(t){
   rw.appendChild(rt);
   rw.appendChild(el("div","hint","コピーして、新しいClaudeのセッションに貼り付ければ続きから始められます。"));
   body.appendChild(rw);
+
+  /* 目標方策との紐づけ。評価に効くので、どれにも属さないタスクを作らない */
+  var gw=el("div","fld"); gw.appendChild(el("label",null,"目標方策（成果評価）"));
+  var gs=el("div","seg");
+  S.goals.filter(function(g){ return g.kind==="goal"; }).forEach(function(g){
+    var b=el("button",t.goal===g.code?"on":null,g.code);
+    b.title=g.title;
+    b.onclick=function(){ patch(t.id,{goal:t.goal===g.code?null:g.code}); closeSheet(); };
+    gs.appendChild(b);
+  });
+  gw.appendChild(gs);
+  var cur=S.goals.filter(function(g){ return g.code===t.goal; })[0];
+  gw.appendChild(el("div","hint",cur?cur.title:"未設定。どの目標にも紐づかないタスクは、やっても評価に残りません。"));
+  gw.appendChild(el("label",null,"本人評価"));
+  gw.lastChild.style.marginTop="12px";
+  var rs=el("div","seg");
+  S.goals.filter(function(g){ return g.kind==="role"; }).forEach(function(g){
+    var on=(t.roles||[]).indexOf(g.code)>=0;
+    var b=el("button",on?"on":null,g.code+" "+g.title);
+    b.onclick=function(){
+      var v=(t.roles||[]).slice();
+      if(on) v.splice(v.indexOf(g.code),1); else v.push(g.code);
+      patch(t.id,{roles:v}); closeSheet();
+    };
+    rs.appendChild(b);
+  });
+  gw.appendChild(rs);
+  body.appendChild(gw);
 
   var pw=el("div","fld"); pw.appendChild(el("label",null,"優先度"));
   var ps=el("div","seg");
