@@ -142,6 +142,15 @@ header{
   border:1px solid var(--rule);border-radius:4px;padding:0 5px;
   font-size:10.5px;color:var(--ink-2);
 }
+/* 更新日。ふだんは黙っていて、直近で触ったものだけが色を持つ */
+.upd{color:var(--ink-3)}
+.upd.fresh{color:var(--dye-2);font-weight:700}
+.stamp{
+  display:flex;gap:14px;flex-wrap:wrap;margin-top:20px;padding-top:12px;
+  border-top:1px solid var(--rule-soft);
+  font-size:11px;color:var(--ink-3);letter-spacing:.02em;
+  font-variant-numeric:tabular-nums;
+}
 
 /* 次の一手。ページ上で暖色はここだけ。目が最初にここへ行く */
 .na{
@@ -397,7 +406,7 @@ var SB   = "https://neqnasakfyyttdbrgaaq.supabase.co";
 var ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5lcW5hc2FrZnl5dHRkYnJnYWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNzMwNjQsImV4cCI6MjEwMjg0OTA2NH0.LIThEpesQ-YQlXMm8JrfAyGD2rAf2XCUPbB5jhPeMEE";
 var KEY  = "mytask.session.v1";
 
-var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", closed:{} };
+var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", updDir:"desc", closed:{} };
 
 /* ---------- 日付（すべてローカル時刻） ---------- */
 function today0(){ var d=new Date(); d.setHours(0,0,0,0); return d; }
@@ -405,6 +414,33 @@ function ymd(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0
 function parseYmd(s){ if(!s) return null; var p=s.split("-"); return new Date(+p[0],+p[1]-1,+p[2]); }
 function daysFrom(s){ var d=parseYmd(s); return d ? Math.round((d-today0())/86400000) : null; }
 function daysSince(iso){ return iso ? Math.floor((Date.now()-new Date(iso).getTime())/86400000) : null; }
+/* 更新日。「もう触ったのか、まだ触っていないのか」を一目で分かるようにする */
+function fmtMd(iso){ var d=new Date(iso); return (d.getMonth()+1)+"/"+d.getDate(); }
+function fmtDT(iso){
+  var d=new Date(iso), p2=function(x){ return (100+x+"").slice(1); };
+  return d.getFullYear()+"/"+p2(d.getMonth()+1)+"/"+p2(d.getDate())+" "+p2(d.getHours())+":"+p2(d.getMinutes());
+}
+function updLabel(iso){
+  var n=daysSince(iso);
+  if(n===null) return null;
+  if(n<=0) return "更新 今日";
+  if(n===1) return "更新 昨日";
+  return "更新 "+fmtMd(iso)+"・"+n+"日前";
+}
+function dayHead(iso){
+  var n=daysSince(iso);
+  if(n===null) return "更新日なし";
+  if(n<=0) return "今日";
+  if(n===1) return "昨日";
+  return fmtMd(iso)+"（"+n+"日前）";
+}
+function ymdOf(iso){ var d=new Date(iso); return d.getFullYear()+"-"+(101+d.getMonth()+"").slice(1)+"-"+(100+d.getDate()+"").slice(1); }
+/* 目標コードだけでは何の目標か思い出せないので、必ず名前を添える */
+function goalOf(code){
+  for(var i=0;i<S.goals.length;i++) if(S.goals[i].code===code) return S.goals[i];
+  return null;
+}
+function goalLabel(code){ var g=goalOf(code); return g ? g.code+" "+g.title : code; }
 function nextMonday(){ var d=today0(); d.setDate(d.getDate()+((8-d.getDay())%7||7)); return ymd(d); }
 function weekStart(){ var d=today0(); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d; }
 
@@ -523,14 +559,16 @@ function card(t,opt){
   function add(node){ if(m.childNodes.length) m.appendChild(el("span","sep","·")); m.appendChild(node); }
   add(el("span","proj",t.project));
   var dl=dueLabel(t); if(dl) add(el("span","due num"+(dl.over?" over":""),dl.s));
+  var ul=updLabel(t.updated_at);
+  if(ul) add(el("span","upd num"+(daysSince(t.updated_at)<=1?" fresh":""),ul));
   if(t.status==="waiting"&&t.waiting_for){
     var ds=daysSince(t.updated_at);
     add(el("span","wait","待ち "+t.waiting_for+(ds>0?"（"+ds+"日）":"")));
   }
   if(t.stuck_reason) add(el("span","pill",t.stuck_reason));
   if(t.postpone_count>0) add(el("span","pill","延期 "+t.postpone_count+"回"));
-  if(t.goal) add(el("span","pill",t.goal));
-  (t.roles||[]).forEach(function(r){ add(el("span","pill",r)); });
+  if(t.goal) add(el("span","pill",goalLabel(t.goal)));
+  (t.roles||[]).forEach(function(r){ add(el("span","pill",goalLabel(r))); });
   b.appendChild(m);
 
   if(t.next_action){
@@ -668,7 +706,7 @@ function renderWaiting(L2,wl){
 
 function renderAll(L2){
   var seg=el("div","seg"); seg.style.margin="20px 0 4px";
-  [["project","案件別"],["deadline","締切別"]].forEach(function(p){
+  [["project","案件別"],["deadline","締切別"],["updated","更新順"]].forEach(function(p){
     var b=el("button",S.allMode===p[0]?"on":null,p[1]);
     b.onclick=function(){ S.allMode=p[0]; render(); };
     seg.appendChild(b);
@@ -677,6 +715,35 @@ function renderAll(L2){
 
   var live=S.tasks.filter(function(t){ return t.status!=="done"&&!isSleeping(t); });
   var slp=sleeping();
+
+  if(S.allMode==="updated"){
+    /* 何を更新済みで、何を長く触っていないか。日付ごとにまとめて出す */
+    var dir=el("div","seg"); dir.style.margin="10px 0 4px";
+    [["desc","新しい順"],["asc","古い順（長く触っていない）"]].forEach(function(p){
+      var b=el("button",S.updDir===p[0]?"on":null,p[1]);
+      b.onclick=function(){ S.updDir=p[0]; render(); };
+      dir.appendChild(b);
+    });
+    L2.appendChild(dir);
+
+    var arr=live.slice().concat(slp).sort(function(a,b){
+      var x=a.updated_at||"", y=b.updated_at||"";
+      if(x===y) return byPri(a,b);
+      return S.updDir==="desc" ? (x<y?1:-1) : (x<y?-1:1);
+    });
+    var uk=null;
+    arr.forEach(function(t){
+      var k=t.updated_at?ymdOf(t.updated_at):"none";
+      if(k!==uk){
+        uk=k;
+        var cnt=arr.filter(function(x){ return (x.updated_at?ymdOf(x.updated_at):"none")===k; }).length;
+        L2.appendChild(sec(dayHead(t.updated_at),cnt,"u:"+k));
+      }
+      if(!S.closed["u:"+k]) L2.appendChild(card(t));
+    });
+    if(!arr.length) L2.appendChild(el("p","note","タスクがありません。"));
+    return;
+  }
 
   if(S.allMode==="project"){
     var g={};
@@ -809,7 +876,7 @@ function renderMap(L2){
     var tr=el("tr");
     var c1=el("td");
     c1.appendChild(document.createTextNode(k));
-    if(goal) c1.appendChild(el("span","gtag",goal));
+    if(goal) c1.appendChild(el("span","gtag",goalLabel(goal)));
     tr.appendChild(c1);
     function cell(v,cls){ var d=el("td",(v===0?"z ":"")+(cls||"")+" num",String(v)); tr.appendChild(d); }
     cell(ts.length);
@@ -886,7 +953,7 @@ function openSheet(t){
   var gw=el("div","fld"); gw.appendChild(el("label",null,"目標方策（成果評価）"));
   var gs=el("div","seg");
   S.goals.filter(function(g){ return g.kind==="goal"; }).forEach(function(g){
-    var b=el("button",t.goal===g.code?"on":null,g.code);
+    var b=el("button",t.goal===g.code?"on":null,g.code+" "+g.title);
     b.title=g.title;
     b.onclick=function(){ patch(t.id,{goal:t.goal===g.code?null:g.code}); closeSheet(); };
     gs.appendChild(b);
@@ -947,6 +1014,12 @@ function openSheet(t){
   fld("案件","project");
   fld("待っている相手","waiting_for","input","入れてから「待ちにする」を押すと待ちタブに移ります。");
   fld("背景・詳細","detail","textarea");
+
+  var st=el("div","stamp");
+  st.appendChild(el("span",null,"最終更新 "+(t.updated_at?fmtDT(t.updated_at):"—")));
+  if(t.resume_updated_at)
+    st.appendChild(el("span",null,"再開プロンプト確認 "+fmtDT(t.resume_updated_at)));
+  body.appendChild(st);
 
   var row=el("div","btnrow"); row.style.margin="22px 0 6px";
   function act(label,cls,fn){ var b=el("button","btn"+(cls?" "+cls:""),label); b.onclick=fn; row.appendChild(b); }
