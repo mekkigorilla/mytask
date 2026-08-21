@@ -245,6 +245,11 @@ header{
 }
 .seg button:hover{border-color:var(--ink-3)}
 .seg button.on{background:var(--card);border-color:var(--dye-2);color:var(--dye-2);font-weight:700}
+/* 目標は名前が長いので、狭い画面では縦に積む */
+@media (max-width:560px){
+  .seg.goals{flex-direction:column}
+  .seg.goals button{text-align:left;padding:10px 12px}
+}
 
 /* 再開プロンプト：貼り付けて使うテキストなので等幅で見せる */
 /* ---------- まとめ（見取り図） ---------- */
@@ -722,12 +727,13 @@ function renderAll(L2){
   if(S.allMode==="updated"){
     /* 何を更新済みで、何を長く触っていないか。日付ごとにまとめて出す */
     var dir=el("div","seg"); dir.style.margin="10px 0 4px";
-    [["desc","新しい順"],["asc","古い順（長く触っていない）"]].forEach(function(p){
+    [["desc","新しい順"],["asc","古い順"]].forEach(function(p){
       var b=el("button",S.updDir===p[0]?"on":null,p[1]);
       b.onclick=function(){ S.updDir=p[0]; render(); };
       dir.appendChild(b);
     });
     L2.appendChild(dir);
+    L2.appendChild(el("p","note","「古い順」は長く触っていないものが先に出ます。"));
 
     var arr=live.slice().concat(slp).sort(function(a,b){
       var x=a.updated_at||"", y=b.updated_at||"";
@@ -958,7 +964,7 @@ function openSheet(t){
 
   /* 目標方策との紐づけ。評価に効くので、どれにも属さないタスクを作らない */
   var gw=el("div","fld"); gw.appendChild(el("label",null,"目標方策（成果評価）"));
-  var gs=el("div","seg");
+  var gs=el("div","seg goals");
   S.goals.filter(function(g){ return g.kind==="goal"; }).forEach(function(g){
     var b=el("button",t.goal===g.code?"on":null,g.code+" "+g.title);
     b.title=g.title;
@@ -970,7 +976,7 @@ function openSheet(t){
   gw.appendChild(el("div","hint",cur?cur.title:"未設定。どの目標にも紐づかないタスクは、やっても評価に残りません。"));
   gw.appendChild(el("label",null,"本人評価"));
   gw.lastChild.style.marginTop="12px";
-  var rs=el("div","seg");
+  var rs=el("div","seg goals");
   S.goals.filter(function(g){ return g.kind==="role"; }).forEach(function(g){
     var on=(t.roles||[]).indexOf(g.code)>=0;
     var b=el("button",on?"on":null,g.code+" "+g.title);
