@@ -316,23 +316,69 @@ header{
 .gnums .v{font-size:15px;font-weight:700;line-height:1.1}
 .gnums .k{font-size:10px;letter-spacing:.08em;color:var(--ink-3)}
 
-.tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
-.tbl th{
-  text-align:right;font-size:10px;letter-spacing:.08em;color:var(--ink-3);
-  font-weight:700;padding:0 0 7px;border-bottom:1px solid var(--rule);
+/* 案件の表。列の幅を固定して縦線で区切る。
+   自動幅だと数字が案件名の隣に詰まって、どの列なのか読めなくなる */
+.tbl{
+  width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px;
+  table-layout:fixed;
 }
-.tbl th:first-child{text-align:left}
-.tbl td{padding:9px 0;border-bottom:1px solid var(--rule-soft);text-align:right}
-.tbl td:first-child{text-align:left;font-weight:500}
-.tbl tbody tr{cursor:pointer}
-.tbl tbody tr:hover td{background:var(--sunk)}
-.tbl .z{color:var(--ink-3);opacity:.45}
+.tbl col.cnum{width:52px}
+.tbl th{
+  text-align:center;font-size:9.5px;letter-spacing:.04em;color:var(--ink-3);
+  font-weight:700;padding:0 0 7px;border-bottom:1px solid var(--rule);
+  border-left:1px solid var(--rule-soft);
+}
+.tbl th:first-child{text-align:left;border-left:none;letter-spacing:.08em;font-size:10px}
+.tbl td{
+  padding:9px 4px;border-bottom:1px solid var(--rule-soft);
+  border-left:1px solid var(--rule-soft);
+  text-align:center;font-variant-numeric:tabular-nums;
+}
+.tbl td:first-child{
+  text-align:left;font-weight:500;border-left:none;padding-left:0;
+  overflow-wrap:anywhere;
+}
+.tbl tr.prow{cursor:pointer}
+.tbl tr.prow:hover>td{background:var(--sunk)}
+.tbl tr.prow.open>td{background:var(--sunk)}
+.tbl .z{color:var(--ink-3);opacity:.35}
 .tbl .warn{color:var(--dye-1);font-weight:700}
+.tbl .okc{color:var(--ink-3)}
+.tbl .caret{
+  display:inline-block;width:12px;font-size:8.5px;color:var(--ink-3);
+  margin-right:5px;vertical-align:1px;
+}
 .tbl .gtag{
   display:inline-block;font-size:9.5px;letter-spacing:.1em;color:var(--ink-3);
   border:1px solid var(--rule);border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:1px;
 }
 .tbl .gtag.none{color:var(--dye-1);border-color:var(--dye-4)}
+.tbl.sub{margin-top:13px;margin-bottom:0}
+
+/* 展開したタスク。案件行と同じ列に並べる。左端の帯は優先度の色 */
+.tbl tr.trow{cursor:pointer;background:var(--sunk)}
+.tbl tr.trow:hover>td{background:var(--paper)}
+.tbl tr.trow>td{border-bottom:1px solid var(--rule-soft)}
+.tbl tr.trow .tcell{padding-left:22px;position:relative}
+.tbl tr.trow .pdot{
+  position:absolute;left:8px;top:12px;width:3px;height:calc(100% - 22px);
+  border-radius:2px;background:var(--dye);
+}
+.tbl tr.trow.d1{--dye:var(--dye-1)}
+.tbl tr.trow.d2{--dye:var(--dye-2)}
+.tbl tr.trow.d3{--dye:var(--dye-3)}
+.tbl tr.trow.d4{--dye:var(--dye-4)}
+.tbl .tt{font-size:12.5px;font-weight:500;line-height:1.5}
+.tbl .tmeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;font-size:10.5px;color:var(--ink-2)}
+.tbl .tna{
+  margin-top:5px;font-size:11.5px;line-height:1.55;color:var(--warm-ink);
+  background:var(--warm-bg);border:1px solid var(--warm-line);
+  border-radius:5px;padding:4px 8px;display:inline-block;max-width:100%;
+}
+.tbl .tna.none{color:var(--ink-3);background:transparent;border-style:dashed;border-color:var(--rule)}
+.tbl .mk{font-size:11px}
+.tbl .mk.warn{color:var(--dye-1)}
+.tbl .mk.ok{color:var(--dye-2)}
 .note{font-size:11.5px;color:var(--ink-3);line-height:1.75;margin:10px 0 0}
 
 .rp-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
@@ -681,11 +727,10 @@ function render(){
     if(opt.go) s.onclick=opt.go;
     f.appendChild(s);
   }
-  var grew=newW-closedW;
+  var remain=S.tasks.filter(function(t){ return t.status!=="done"; }).length;
   stat("今週 終わった",closedW,{up:closedW>0,go:function(){ showPick("week-done"); }});
   stat("今週 増えた",newW,{go:function(){ showPick("week-new"); }});
-  stat(grew>0?"今週で増えた分":"今週で減った分",(grew>0?"+":"")+grew,
-       {warn:grew>0,go:function(){ showPick(grew>0?"week-new":"week-done"); }});
+  stat("残り",remain,{go:function(){ S.tab="all"; S.pick=null; S.allMode="project"; render(); window.scrollTo(0,0); }});
   stat("待ち",waits().length,{go:function(){ S.tab="waiting"; S.pick=null; render(); window.scrollTo(0,0); }});
 
   var tl=todays(), wl=waits(), ol=open_();
@@ -908,43 +953,93 @@ function renderMap(L2){
     return projOrder.filter(function(k){ return byProj[k].some(test); });
   }
 
-  /* 目標カードの下にぶら下げる案件。下の案件別と同じ列で見せる。
-     押すと画面を移動せず、その場でタスクが開く（戻ったときにどこを見ていたか分からなくならないため） */
-  function projTable(host,names,keyPrefix){
-    if(!names.length){
-      host.appendChild(el("div","gempty","ぶら下がっている案件がありません"));
-      return;
-    }
-    var tb=el("table","tbl sub");
+  /* 案件の表。列がずれないよう幅を固定し、縦線で区切る。
+     展開したタスクも同じ列に並べる（緊急・待ちがどれなのか、開いても分かるように） */
+  var COLS=["案件","件数","緊急","待ち","一手なし","再開","済"];
+  function tableShell(cls){
+    var tb=el("table","tbl"+(cls?" "+cls:""));
+    var cg=el("colgroup");
+    cg.appendChild(el("col","cname"));
+    for(var i=0;i<6;i++) cg.appendChild(el("col","cnum"));
+    tb.appendChild(cg);
     var th=el("tr");
-    ["案件","件数","緊急","待ち","一手なし","再開","済"].forEach(function(x){ th.appendChild(el("th",null,x)); });
+    COLS.forEach(function(x){ th.appendChild(el("th",null,x)); });
     var head=el("thead"); head.appendChild(th); tb.appendChild(head);
-    var tbody=el("tbody");
+    return tb;
+  }
+  function dot(on,cls,label){
+    var d=el("td","num"+(on?"":" z"));
+    if(on){ var m=el("span","mk"+(cls?" "+cls:"")); m.textContent=label; d.appendChild(m); }
+    else d.textContent="·";
+    return d;
+  }
+  /* 展開したタスク1件分。列は案件行と揃える */
+  function taskRow(t){
+    var tr=el("tr","trow d"+t.priority);
+    var c1=el("td","tcell");
+    var ttl=el("div","tt");
+    ttl.appendChild(el("span","pdot"));
+    ttl.appendChild(el("span",null,t.title));
+    c1.appendChild(ttl);
+    var meta=el("div","tmeta");
+    var dl=dueLabel(t);
+    if(dl) meta.appendChild(el("span","due num"+(dl.over?" over":""),dl.s));
+    var ul=updLabel(t.updated_at);
+    if(ul) meta.appendChild(el("span","upd num"+(calAgo(t.updated_at)<=1?" fresh":""),ul));
+    if(t.stuck_reason) meta.appendChild(el("span","pill",t.stuck_reason));
+    if(meta.childNodes.length) c1.appendChild(meta);
+    c1.appendChild(el("div",t.next_action?"tna":"tna none",
+      t.next_action ? "▶ "+t.next_action : "▶ 次の一手が未設定"));
+    tr.appendChild(c1);
+    tr.appendChild(el("td","num z","·"));
+    tr.appendChild(dot(t.priority===1,"warn","🔴"));
+    var w=dot(t.status==="waiting","","待"); if(t.waiting_for) w.title=t.waiting_for; tr.appendChild(w);
+    tr.appendChild(dot(!t.next_action,"warn","●"));
+    tr.appendChild(dot(!!t.resume_prompt,"ok","⧉"));
+    tr.appendChild(el("td","num z","·"));
+    tr.onclick=function(ev){ ev.stopPropagation(); openSheet(t); };
+    return tr;
+  }
+  /* 案件1行分＋開いているときはその下にタスク行 */
+  function projRows(tbody,names,keyPrefix,withTag){
     names.forEach(function(k){
       var ts=byProj[k];
-      var key=keyPrefix+":"+k;
-      var open=!S.closed[key];
+      var key=keyPrefix+":"+k, open=!S.closed[key];
       var urgent=ts.filter(function(t){return t.priority===1;}).length;
       var tr=el("tr","prow"+(open?" open":""));
       var c1=el("td");
       c1.appendChild(el("span","caret",open?"▼":"▶"));
       c1.appendChild(document.createTextNode(k));
+      if(withTag){
+        var gset=[];
+        ts.forEach(function(t){ if(t.goal&&gset.indexOf(t.goal)<0) gset.push(t.goal); });
+        if(!gset.length) ts.forEach(function(t){
+          (t.roles||[]).forEach(function(r){ if(gset.indexOf(r)<0) gset.push(r); });
+        });
+        gset.sort().forEach(function(code){ c1.appendChild(el("span","gtag",goalLabel(code))); });
+        if(!gset.length) c1.appendChild(el("span","gtag none","紐づけなし"));
+      }
       tr.appendChild(c1);
       function cell(v,cls){ tr.appendChild(el("td",(v===0?"z ":"")+(cls||"")+" num",String(v))); }
       cell(ts.length);
       cell(urgent, urgent?"warn":"");
       cell(ts.filter(function(t){return t.status==="waiting";}).length);
-      cell(ts.filter(function(t){return !t.next_action;}).length);
+      cell(ts.filter(function(t){return !t.next_action;}).length,
+           ts.filter(function(t){return !t.next_action;}).length?"warn":"");
       cell(ts.filter(function(t){return t.resume_prompt;}).length);
       cell(doneByProj[k]||0,"okc");
       tr.onclick=function(){ S.closed[key]=open; render(); };
       tbody.appendChild(tr);
-      if(open){
-        var td=el("td"); td.colSpan=7; td.className="expand";
-        ts.slice().sort(byPri).forEach(function(t){ td.appendChild(card(t)); });
-        var er=el("tr","exp"); er.appendChild(td); tbody.appendChild(er);
-      }
+      if(open) ts.slice().sort(byPri).forEach(function(t){ tbody.appendChild(taskRow(t)); });
     });
+  }
+  function projTable(host,names,keyPrefix){
+    if(!names.length){
+      host.appendChild(el("div","gempty","ぶら下がっている案件がありません"));
+      return;
+    }
+    var tb=tableShell("sub"), tbody=el("tbody");
+    projRows(tbody,names,keyPrefix,false);
     tb.appendChild(tbody);
     host.appendChild(tb);
   }
@@ -1035,46 +1130,8 @@ function renderMap(L2){
     return ub-ua || byProj[b].length-byProj[a].length;
   });
 
-  var tb=el("table","tbl");
-  var th=el("tr");
-  ["案件","件数","緊急","待ち","一手なし","再開","済"].forEach(function(x){ th.appendChild(el("th",null,x)); });
-  var head=el("thead"); head.appendChild(th); tb.appendChild(head);
-  var tbody=el("tbody");
-  order.forEach(function(k){
-    var ts=byProj[k];
-    var key="ALL:"+k, open=!S.closed[key];
-    var urgent=ts.filter(function(t){return t.priority===1;}).length;
-    var wait=ts.filter(function(t){return t.status==="waiting";}).length;
-    var non=ts.filter(function(t){return !t.next_action;}).length;
-    var rp=ts.filter(function(t){return t.resume_prompt;}).length;
-    var gset=[];
-    ts.forEach(function(t){ if(t.goal&&gset.indexOf(t.goal)<0) gset.push(t.goal); });
-    if(!gset.length) ts.forEach(function(t){
-      (t.roles||[]).forEach(function(r){ if(gset.indexOf(r)<0) gset.push(r); });
-    });
-    gset.sort();
-    var tr=el("tr","prow"+(open?" open":""));
-    var c1=el("td");
-    c1.appendChild(el("span","caret",open?"▼":"▶"));
-    c1.appendChild(document.createTextNode(k));
-    gset.forEach(function(code){ c1.appendChild(el("span","gtag",goalLabel(code))); });
-    if(!gset.length) c1.appendChild(el("span","gtag none","評価の紐づけなし"));
-    tr.appendChild(c1);
-    function cell(v,cls){ tr.appendChild(el("td",(v===0?"z ":"")+(cls||"")+" num",String(v))); }
-    cell(ts.length);
-    cell(urgent, urgent?"warn":"");
-    cell(wait);
-    cell(non);
-    cell(rp);
-    cell(doneByProj[k]||0,"okc");
-    tr.onclick=function(){ S.closed[key]=open; render(); };
-    tbody.appendChild(tr);
-    if(open){
-      var td=el("td"); td.colSpan=7; td.className="expand";
-      ts.slice().sort(byPri).forEach(function(t){ td.appendChild(card(t)); });
-      var er=el("tr","exp"); er.appendChild(td); tbody.appendChild(er);
-    }
-  });
+  var tb=tableShell(null), tbody=el("tbody");
+  projRows(tbody,order,"ALL",true);
   tb.appendChild(tbody);
   L2.appendChild(tb);
 
