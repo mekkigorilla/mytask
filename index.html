@@ -884,12 +884,16 @@ function renderMap(L2){
     /* 案件の中に複数の目標が混ざることがある。1つだけのふりをしない */
     var gset=[];
     ts.forEach(function(t){ if(t.goal&&gset.indexOf(t.goal)<0) gset.push(t.goal); });
+    /* 目標が付いていなくても本人評価（R1/R2）に効くものがある。未設定と決めつけない */
+    if(!gset.length) ts.forEach(function(t){
+      (t.roles||[]).forEach(function(r){ if(gset.indexOf(r)<0) gset.push(r); });
+    });
     gset.sort();
     var tr=el("tr");
     var c1=el("td");
     c1.appendChild(document.createTextNode(k));
     gset.forEach(function(code){ c1.appendChild(el("span","gtag",goalLabel(code))); });
-    if(!gset.length) c1.appendChild(el("span","gtag none","目標 未設定"));
+    if(!gset.length) c1.appendChild(el("span","gtag none","評価の紐づけなし"));
     tr.appendChild(c1);
     function cell(v,cls){ var d=el("td",(v===0?"z ":"")+(cls||"")+" num",String(v)); tr.appendChild(d); }
     cell(ts.length);
