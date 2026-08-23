@@ -263,7 +263,36 @@ header{
 .gttl{font-size:14.5px;font-weight:700;letter-spacing:.01em}
 .gwt{margin-left:auto;font-size:11px;color:var(--ink-2)}
 .gwt b{font-size:15px;font-weight:700;color:var(--ink)}
-.gaim{font-size:11.5px;color:var(--ink-2);line-height:1.75;margin-bottom:11px}
+.gaim{font-size:11.5px;color:var(--ink-2);line-height:1.75}
+/* ゴールと方策。何の目標だったか思い出せないと、下の数字に意味が出ない */
+.gsub{margin:9px 0 0;padding-left:9px;border-left:2px solid var(--rule)}
+.glab{
+  display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.14em;
+  color:var(--ink-3);margin-bottom:2px;
+}
+.gplan{font-size:11.5px;color:var(--ink-2);line-height:1.8;white-space:pre-wrap}
+.gempty{font-size:11.5px;color:var(--ink-3);margin-top:12px}
+/* 目標の下にぶら下がる案件。押すとその案件だけ開く */
+.plist{margin-top:13px;border-top:1px solid var(--rule-soft)}
+.prow{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:9px 2px;border-bottom:1px solid var(--rule-soft);transition:.12s;
+}
+.prow:last-child{border-bottom:none}
+.prow:hover{background:var(--sunk)}
+.pn{font-size:12.5px;font-weight:600;color:var(--ink)}
+.pnums{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.chip{
+  font-size:10px;letter-spacing:.03em;color:var(--ink-2);
+  border:1px solid var(--rule);border-radius:4px;padding:1px 6px;white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.chip.base{font-weight:700;color:var(--ink)}
+.chip.warn{color:var(--dye-1);border-color:var(--dye-4)}
+.chip.done{color:var(--ink-3)}
+.gcard.out::before{background:var(--dye-4)}
+.gnums .v.warn{color:var(--dye-1)}
+.tbl .okc{color:var(--ink-3)}
 /* ウエイトを帯で見せる。目標そのものの重さが一目で分かる */
 .gbar{height:4px;border-radius:99px;background:var(--rule-soft);overflow:hidden;margin-bottom:11px}
 .gbar i{display:block;height:100%;background:var(--dye-3)}
@@ -412,7 +441,7 @@ var SB   = "https://neqnasakfyyttdbrgaaq.supabase.co";
 var ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5lcW5hc2FrZnl5dHRkYnJnYWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNzMwNjQsImV4cCI6MjEwMjg0OTA2NH0.LIThEpesQ-YQlXMm8JrfAyGD2rAf2XCUPbB5jhPeMEE";
 var KEY  = "mytask.session.v1";
 
-var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", updDir:"desc", closed:{} };
+var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", updDir:"desc", focus:null, closed:{} };
 
 /* ---------- 日付（すべてローカル時刻） ---------- */
 function today0(){ var d=new Date(); d.setHours(0,0,0,0); return d; }
@@ -609,6 +638,16 @@ function complete(t,node){
   toast("完了にしました",function(){ patch(t.id,{status:prev}); });
 }
 
+/* まとめから案件をクリックしたとき、その案件だけを開いた状態で全部タブへ飛ぶ */
+function jumpToProject(name){
+  S.tab="all"; S.allMode="project"; S.focus=name; S.closed={};
+  render();
+  var t=document.querySelector('[data-proj="'+cssq(name)+'"]');
+  if(t) t.scrollIntoView({block:"start"});
+  else window.scrollTo(0,0);
+}
+function cssq(v){ return String(v).replace(/"/g,'\\"'); }
+
 function sec(title,count,key){
   var h=el(key?"button":"div","sec"+(key&&S.closed[key]?" closed":"")+(key?" click":""));
   h.appendChild(el("span","t",title));
@@ -757,8 +796,16 @@ function renderAll(L2){
   if(S.allMode==="project"){
     var g={};
     live.forEach(function(t){ (g[t.project]=g[t.project]||[]).push(t); });
+    if(S.focus){
+      var b=el("button","btn wide","すべての案件を表示する（今は "+S.focus+" だけ）");
+      b.onclick=function(){ S.focus=null; render(); window.scrollTo(0,0); };
+      L2.appendChild(b);
+    }
     Object.keys(g).forEach(function(k){
-      L2.appendChild(sec(k,g[k].length,"p:"+k));
+      if(S.focus && k!==S.focus) return;
+      var h=sec(k,g[k].length,"p:"+k);
+      h.setAttribute("data-proj",k);
+      L2.appendChild(h);
       if(!S.closed["p:"+k]) g[k].sort(byPri).forEach(function(t){ L2.appendChild(card(t)); });
     });
   }else{
@@ -807,14 +854,54 @@ function byPri(a,b){
 }
 
 /* ---------- まとめ ----------
-   これで評価される目標方策と、案件別の内訳を1画面に置く。
+   これで評価される目標方策と、その下にぶら下がる案件を1画面に置く。
    数字は自慢のためではなく、どこが手薄かを見つけるために出す。 */
 function renderMap(L2){
   var live=S.tasks.filter(function(t){ return t.status!=="done"; });
 
-  L2.appendChild(sec("目標方策（第50期下期・〜12月）"));
-  S.goals.filter(function(g){ return g.kind==="goal"; }).forEach(function(g){
-    var ts=live.filter(function(t){ return t.goal===g.code; });
+  /* 案件ごとにまとめておく */
+  var byProj={}, projOrder=[];
+  live.forEach(function(t){
+    if(!byProj[t.project]){ byProj[t.project]=[]; projOrder.push(t.project); }
+    byProj[t.project].push(t);
+  });
+  var doneByProj={};
+  S.done.forEach(function(x){ var k=x.project||"-"; doneByProj[k]=(doneByProj[k]||0)+1; });
+
+  function projsFor(test){
+    return projOrder.filter(function(k){ return byProj[k].some(test); });
+  }
+
+  /* 目標カードの下にぶら下げる案件の一覧。押すとその案件だけ開いて全部タブへ飛ぶ */
+  function projList(card,names){
+    if(!names.length){
+      card.appendChild(el("div","gempty","ぶら下がっている案件がありません"));
+      return;
+    }
+    var wrap=el("div","plist");
+    names.forEach(function(k){
+      var ts=byProj[k];
+      var r=el("button","prow");
+      r.appendChild(el("span","pn",k));
+      var n=el("span","pnums");
+      function chip(v,cls,label){
+        if(!v) return;
+        var c=el("span","chip"+(cls?" "+cls:""),label+" "+v);
+        n.appendChild(c);
+      }
+      n.appendChild(el("span","chip base",ts.length+" 件"));
+      chip(ts.filter(function(t){ return t.priority===1; }).length,"warn","🔴");
+      chip(ts.filter(function(t){ return t.status==="waiting"; }).length,"","待ち");
+      chip(ts.filter(function(t){ return !t.next_action; }).length,"warn","一手なし");
+      chip(doneByProj[k]||0,"done","済");
+      r.appendChild(n);
+      r.onclick=function(){ jumpToProject(k); };
+      wrap.appendChild(r);
+    });
+    card.appendChild(wrap);
+  }
+
+  function goalCard(g,ts,names,showBar){
     var c=el("div","gcard");
     var h=el("div","ghead");
     h.appendChild(el("span","gcode",g.code));
@@ -824,18 +911,44 @@ function renderMap(L2){
     wt.appendChild(document.createTextNode(" %"));
     h.appendChild(wt);
     c.appendChild(h);
-    c.appendChild(el("div","gaim",g.aim||""));
-    var bar=el("div","gbar"); var fill=el("i"); fill.style.width=g.weight+"%"; bar.appendChild(fill);
-    c.appendChild(bar);
+
+    if(g.aim){
+      var a=el("div","gsub");
+      a.appendChild(el("span","glab","ゴール"));
+      a.appendChild(el("div","gaim",g.aim));
+      c.appendChild(a);
+    }
+    if(g.plan){
+      var pl=el("div","gsub");
+      pl.appendChild(el("span","glab","方策"));
+      pl.appendChild(el("div","gplan",g.plan));
+      c.appendChild(pl);
+    }
+    if(showBar){
+      var bar=el("div","gbar"); var fill=el("i"); fill.style.width=g.weight+"%"; bar.appendChild(fill);
+      c.appendChild(bar);
+    }
     var n=el("div","gnums");
-    function num(k,v){ var d=el("div"); d.appendChild(el("div","v num",String(v))); d.appendChild(el("div","k",k)); n.appendChild(d); }
+    function num(k,v,warn){
+      var d=el("div");
+      d.appendChild(el("div","v num"+(warn&&v?" warn":""),String(v)));
+      d.appendChild(el("div","k",k));
+      n.appendChild(d);
+    }
     num("残タスク",ts.length);
     num("緊急",ts.filter(function(t){ return t.priority===1; }).length);
     num("待ち",ts.filter(function(t){ return t.status==="waiting"; }).length);
-    num("次の一手なし",ts.filter(function(t){ return !t.next_action; }).length);
+    num("次の一手なし",ts.filter(function(t){ return !t.next_action; }).length,true);
     c.appendChild(n);
-    c.onclick=function(){ S.tab="all"; S.allMode="project"; render(); window.scrollTo(0,0); };
-    L2.appendChild(c);
+    projList(c,names);
+    return c;
+  }
+
+  L2.appendChild(sec("目標方策（第50期下期・〜12月）"));
+  S.goals.filter(function(g){ return g.kind==="goal"; }).forEach(function(g){
+    var ts=live.filter(function(t){ return t.goal===g.code; });
+    var names=projsFor(function(t){ return t.goal===g.code; });
+    L2.appendChild(goalCard(g,ts,names,true));
   });
 
   var roles=S.goals.filter(function(g){ return g.kind==="role"; });
@@ -843,48 +956,50 @@ function renderMap(L2){
     L2.appendChild(sec("本人評価"));
     roles.forEach(function(g){
       var ts=live.filter(function(t){ return (t.roles||[]).indexOf(g.code)>=0; });
-      var c=el("div","gcard");
-      var h=el("div","ghead");
-      h.appendChild(el("span","gcode",g.code));
-      h.appendChild(el("span","gttl",g.title));
-      var wt=el("span","gwt");
-      wt.appendChild(el("b",null,String(g.weight)));
-      wt.appendChild(document.createTextNode(" %"));
-      h.appendChild(wt);
-      c.appendChild(h);
-      c.appendChild(el("div","gaim",g.aim||""));
-      var n=el("div","gnums");
-      var d=el("div"); d.appendChild(el("div","v num",String(ts.length))); d.appendChild(el("div","k","該当タスク")); n.appendChild(d);
-      c.appendChild(n);
-      L2.appendChild(c);
+      var names=projsFor(function(t){ return (t.roles||[]).indexOf(g.code)>=0; });
+      L2.appendChild(goalCard(g,ts,names,false));
     });
+  }
+
+  /* どの目標にも本人評価にもぶら下がらないもの。隠さずに並べる */
+  function unlinked(t){ return !t.goal && !(t.roles||[]).length; }
+  var outNames=projsFor(unlinked);
+  if(outNames.length){
+    L2.appendChild(sec("目標方策外"));
+    var oc=el("div","gcard out");
+    var oh=el("div","ghead");
+    oh.appendChild(el("span","gttl","評価に紐づいていないもの"));
+    oc.appendChild(oh);
+    oc.appendChild(el("div","gaim","会社から指示されていない、自分でどうにかしたいもの。ここが増えすぎていないかだけ見る。"));
+    var ots=live.filter(unlinked);
+    var on=el("div","gnums");
+    var od=el("div"); od.appendChild(el("div","v num",String(ots.length))); od.appendChild(el("div","k","残タスク")); on.appendChild(od);
+    oc.appendChild(on);
+    projList(oc,outNames);
+    L2.appendChild(oc);
   }
 
   /* 案件別の一覧 */
   L2.appendChild(sec("案件別"));
-  var g={}, order=[];
-  live.forEach(function(t){ if(!g[t.project]){ g[t.project]=[]; order.push(t.project); } g[t.project].push(t); });
-  order.sort(function(a,b){
-    var ua=g[a].filter(function(t){return t.priority===1;}).length;
-    var ub=g[b].filter(function(t){return t.priority===1;}).length;
-    return ub-ua || g[b].length-g[a].length;
+  var order=projOrder.slice().sort(function(a,b){
+    var ua=byProj[a].filter(function(t){return t.priority===1;}).length;
+    var ub=byProj[b].filter(function(t){return t.priority===1;}).length;
+    return ub-ua || byProj[b].length-byProj[a].length;
   });
 
   var tb=el("table","tbl");
   var th=el("tr");
-  ["案件","件数","緊急","待ち","一手なし","再開"].forEach(function(x){ th.appendChild(el("th",null,x)); });
+  ["案件","件数","緊急","待ち","一手なし","再開","済"].forEach(function(x){ th.appendChild(el("th",null,x)); });
   var head=el("thead"); head.appendChild(th); tb.appendChild(head);
   var tbody=el("tbody");
   order.forEach(function(k){
-    var ts=g[k];
+    var ts=byProj[k];
     var urgent=ts.filter(function(t){return t.priority===1;}).length;
     var wait=ts.filter(function(t){return t.status==="waiting";}).length;
     var non=ts.filter(function(t){return !t.next_action;}).length;
     var rp=ts.filter(function(t){return t.resume_prompt;}).length;
-    /* 案件の中に複数の目標が混ざることがある。1つだけのふりをしない */
     var gset=[];
     ts.forEach(function(t){ if(t.goal&&gset.indexOf(t.goal)<0) gset.push(t.goal); });
-    /* 目標が付いていなくても本人評価（R1/R2）に効くものがある。未設定と決めつけない */
     if(!gset.length) ts.forEach(function(t){
       (t.roles||[]).forEach(function(r){ if(gset.indexOf(r)<0) gset.push(r); });
     });
@@ -895,13 +1010,14 @@ function renderMap(L2){
     gset.forEach(function(code){ c1.appendChild(el("span","gtag",goalLabel(code))); });
     if(!gset.length) c1.appendChild(el("span","gtag none","評価の紐づけなし"));
     tr.appendChild(c1);
-    function cell(v,cls){ var d=el("td",(v===0?"z ":"")+(cls||"")+" num",String(v)); tr.appendChild(d); }
+    function cell(v,cls){ tr.appendChild(el("td",(v===0?"z ":"")+(cls||"")+" num",String(v))); }
     cell(ts.length);
     cell(urgent, urgent?"warn":"");
     cell(wait);
     cell(non);
     cell(rp);
-    tr.onclick=function(){ S.tab="all"; S.allMode="project"; S.closed={}; render(); window.scrollTo(0,0); };
+    cell(doneByProj[k]||0,"okc");
+    tr.onclick=function(){ jumpToProject(k); };
     tbody.appendChild(tr);
   });
   tb.appendChild(tbody);
@@ -909,8 +1025,9 @@ function renderMap(L2){
 
   var nn=live.filter(function(t){ return !t.next_action; }).length;
   L2.appendChild(el("p","note",
+    "案件を押すと、その案件だけを開いた状態で「全部」タブに移ります。"+
     "「一手なし」は、次に何をするか決まっていないタスクです。現在 "+nn+" 件。"+
-    "ここが埋まっていないものほど放置されます。「再開」は再開プロンプトが書いてある件数です。"));
+    "ここが埋まっていないものほど放置されます。「再開」は再開プロンプトが書いてある件数、「済」は完了ログの件数です。"));
 }
 
 /* ---------- 今日の箱に入れる ---------- */
