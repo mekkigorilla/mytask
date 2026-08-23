@@ -73,6 +73,11 @@ header{
 .stat .v{font-size:17px;font-weight:700;line-height:1.1;letter-spacing:-.01em}
 .stat .k{font-size:10.5px;letter-spacing:.1em;color:var(--ink-3);font-weight:500}
 .stat.up .v{color:var(--dye-2)}
+.stat.warn .v{color:var(--dye-1)}
+/* 押せる数字。押せることが分かるだけの最小の合図にする */
+.stat.click{text-align:left;padding:2px 8px 2px 0;border-radius:6px;transition:.12s}
+.stat.click:hover{background:var(--sunk)}
+.stat.click:hover .k{color:var(--ink-2)}
 
 .tabs{display:flex;gap:26px}
 .tabs button{
@@ -272,6 +277,16 @@ header{
 }
 .gplan{font-size:11.5px;color:var(--ink-2);line-height:1.8;white-space:pre-wrap}
 .gempty{font-size:11.5px;color:var(--ink-3);margin-top:12px}
+/* 目標カードの中の案件表。下の案件別と同じ見た目に揃える */
+.tbl.sub{margin-top:13px;margin-bottom:0}
+.tbl .caret{
+  display:inline-block;width:12px;font-size:8.5px;color:var(--ink-3);
+  margin-right:5px;vertical-align:1px;
+}
+.tbl tr.prow.open>td{background:var(--sunk)}
+.tbl td.expand{padding:4px 0 12px;background:var(--sunk);text-align:left}
+.tbl tr.exp:hover td{background:var(--sunk)}
+.tbl td.expand .task{margin:6px 0}
 /* 目標の下にぶら下がる案件。押すとその案件だけ開く */
 .plist{margin-top:13px;border-top:1px solid var(--rule-soft)}
 .prow{
@@ -441,7 +456,7 @@ var SB   = "https://neqnasakfyyttdbrgaaq.supabase.co";
 var ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5lcW5hc2FrZnl5dHRkYnJnYWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNzMwNjQsImV4cCI6MjEwMjg0OTA2NH0.LIThEpesQ-YQlXMm8JrfAyGD2rAf2XCUPbB5jhPeMEE";
 var KEY  = "mytask.session.v1";
 
-var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", updDir:"desc", focus:null, closed:{} };
+var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", updDir:"desc", pick:null, closed:{} };
 
 /* ---------- 日付（すべてローカル時刻） ---------- */
 function today0(){ var d=new Date(); d.setHours(0,0,0,0); return d; }
@@ -638,16 +653,6 @@ function complete(t,node){
   toast("完了にしました",function(){ patch(t.id,{status:prev}); });
 }
 
-/* まとめから案件をクリックしたとき、その案件だけを開いた状態で全部タブへ飛ぶ */
-function jumpToProject(name){
-  S.tab="all"; S.allMode="project"; S.focus=name; S.closed={};
-  render();
-  var t=document.querySelector('[data-proj="'+cssq(name)+'"]');
-  if(t) t.scrollIntoView({block:"start"});
-  else window.scrollTo(0,0);
-}
-function cssq(v){ return String(v).replace(/"/g,'\\"'); }
-
 function sec(title,count,key){
   var h=el(key?"button":"div","sec"+(key&&S.closed[key]?" closed":"")+(key?" click":""));
   h.appendChild(el("span","t",title));
@@ -667,16 +672,21 @@ function render(){
   var closedW=S.done.filter(function(x){ return new Date(x.done_at)>=ws; }).length;
   var newW=S.tasks.filter(function(x){ return new Date(x.created_at)>=ws; }).length;
   var f=$("flow"); f.innerHTML="";
-  function stat(k,v,up){
-    var s=el("div","stat"+(up?" up":""));
+  /* 押せば中身が見られる。数字だけ出して終わりにしない */
+  function stat(k,v,opt){
+    opt=opt||{};
+    var s=el(opt.go?"button":"div","stat"+(opt.up?" up":"")+(opt.warn?" warn":"")+(opt.go?" click":""));
     s.appendChild(el("div","v num",String(v)));
     s.appendChild(el("div","k",k));
+    if(opt.go) s.onclick=opt.go;
     f.appendChild(s);
   }
-  stat("今週クローズ",closedW,closedW>0);
-  stat("今週の新規",newW);
-  stat("純減",closedW-newW);
-  stat("待ち",waits().length);
+  var grew=newW-closedW;
+  stat("今週 終わった",closedW,{up:closedW>0,go:function(){ showPick("week-done"); }});
+  stat("今週 増えた",newW,{go:function(){ showPick("week-new"); }});
+  stat(grew>0?"今週で増えた分":"今週で減った分",(grew>0?"+":"")+grew,
+       {warn:grew>0,go:function(){ showPick(grew>0?"week-new":"week-done"); }});
+  stat("待ち",waits().length,{go:function(){ S.tab="waiting"; S.pick=null; render(); window.scrollTo(0,0); }});
 
   var tl=todays(), wl=waits(), ol=open_();
   $("n_today").textContent=tl.length||"";
@@ -751,7 +761,32 @@ function renderWaiting(L2,wl){
   });
 }
 
+/* ヘッダーの数字から中身へ。押した数字が何だったのか分かる形で出す */
+function showPick(kind){
+  S.tab="all"; S.pick=kind; render(); window.scrollTo(0,0);
+}
+function pickList(L2){
+  var ws=weekStart();
+  var title, list=[], isDone=false;
+  if(S.pick==="week-done"){
+    title="今週 終わったもの";
+    isDone=true;
+    list=S.done.filter(function(x){ return new Date(x.done_at)>=ws; });
+  }else{
+    title="今週 増えたもの（今週つくったタスク）";
+    list=S.tasks.filter(function(t){ return new Date(t.created_at)>=ws && t.status!=="done"; }).sort(byPri);
+  }
+  var b=el("button","btn wide","← 全部の一覧に戻る");
+  b.onclick=function(){ S.pick=null; render(); window.scrollTo(0,0); };
+  L2.appendChild(b);
+  L2.appendChild(sec(title,list.length));
+  if(!list.length){ L2.appendChild(el("p","note","今週はありません。")); return; }
+  if(isDone) list.forEach(function(x){ L2.appendChild(doneRow(x.title,x.task_id)); });
+  else list.forEach(function(t){ L2.appendChild(card(t)); });
+}
+
 function renderAll(L2){
+  if(S.pick){ pickList(L2); return; }
   var seg=el("div","seg"); seg.style.margin="20px 0 4px";
   [["project","案件別"],["deadline","締切別"],["updated","更新順"]].forEach(function(p){
     var b=el("button",S.allMode===p[0]?"on":null,p[1]);
@@ -796,16 +831,8 @@ function renderAll(L2){
   if(S.allMode==="project"){
     var g={};
     live.forEach(function(t){ (g[t.project]=g[t.project]||[]).push(t); });
-    if(S.focus){
-      var b=el("button","btn wide","すべての案件を表示する（今は "+S.focus+" だけ）");
-      b.onclick=function(){ S.focus=null; render(); window.scrollTo(0,0); };
-      L2.appendChild(b);
-    }
     Object.keys(g).forEach(function(k){
-      if(S.focus && k!==S.focus) return;
-      var h=sec(k,g[k].length,"p:"+k);
-      h.setAttribute("data-proj",k);
-      L2.appendChild(h);
+      L2.appendChild(sec(k,g[k].length,"p:"+k));
       if(!S.closed["p:"+k]) g[k].sort(byPri).forEach(function(t){ L2.appendChild(card(t)); });
     });
   }else{
@@ -858,6 +885,15 @@ function byPri(a,b){
    数字は自慢のためではなく、どこが手薄かを見つけるために出す。 */
 function renderMap(L2){
   var live=S.tasks.filter(function(t){ return t.status!=="done"; });
+  /* まとめは俯瞰用。案件は既定で閉じておく（開きっぱなしだと一覧の意味が無くなる） */
+  if(!S.mapInit){
+    S.mapInit=true;
+    S.tasks.forEach(function(t){
+      ["G1","G2","G3","R1","R2","OUT","ALL"].forEach(function(pre){
+        if(S.closed[pre+":"+t.project]===undefined) S.closed[pre+":"+t.project]=true;
+      });
+    });
+  }
 
   /* 案件ごとにまとめておく */
   var byProj={}, projOrder=[];
@@ -872,33 +908,45 @@ function renderMap(L2){
     return projOrder.filter(function(k){ return byProj[k].some(test); });
   }
 
-  /* 目標カードの下にぶら下げる案件の一覧。押すとその案件だけ開いて全部タブへ飛ぶ */
-  function projList(card,names){
+  /* 目標カードの下にぶら下げる案件。下の案件別と同じ列で見せる。
+     押すと画面を移動せず、その場でタスクが開く（戻ったときにどこを見ていたか分からなくならないため） */
+  function projTable(host,names,keyPrefix){
     if(!names.length){
-      card.appendChild(el("div","gempty","ぶら下がっている案件がありません"));
+      host.appendChild(el("div","gempty","ぶら下がっている案件がありません"));
       return;
     }
-    var wrap=el("div","plist");
+    var tb=el("table","tbl sub");
+    var th=el("tr");
+    ["案件","件数","緊急","待ち","一手なし","再開","済"].forEach(function(x){ th.appendChild(el("th",null,x)); });
+    var head=el("thead"); head.appendChild(th); tb.appendChild(head);
+    var tbody=el("tbody");
     names.forEach(function(k){
       var ts=byProj[k];
-      var r=el("button","prow");
-      r.appendChild(el("span","pn",k));
-      var n=el("span","pnums");
-      function chip(v,cls,label){
-        if(!v) return;
-        var c=el("span","chip"+(cls?" "+cls:""),label+" "+v);
-        n.appendChild(c);
+      var key=keyPrefix+":"+k;
+      var open=!S.closed[key];
+      var urgent=ts.filter(function(t){return t.priority===1;}).length;
+      var tr=el("tr","prow"+(open?" open":""));
+      var c1=el("td");
+      c1.appendChild(el("span","caret",open?"▼":"▶"));
+      c1.appendChild(document.createTextNode(k));
+      tr.appendChild(c1);
+      function cell(v,cls){ tr.appendChild(el("td",(v===0?"z ":"")+(cls||"")+" num",String(v))); }
+      cell(ts.length);
+      cell(urgent, urgent?"warn":"");
+      cell(ts.filter(function(t){return t.status==="waiting";}).length);
+      cell(ts.filter(function(t){return !t.next_action;}).length);
+      cell(ts.filter(function(t){return t.resume_prompt;}).length);
+      cell(doneByProj[k]||0,"okc");
+      tr.onclick=function(){ S.closed[key]=open; render(); };
+      tbody.appendChild(tr);
+      if(open){
+        var td=el("td"); td.colSpan=7; td.className="expand";
+        ts.slice().sort(byPri).forEach(function(t){ td.appendChild(card(t)); });
+        var er=el("tr","exp"); er.appendChild(td); tbody.appendChild(er);
       }
-      n.appendChild(el("span","chip base",ts.length+" 件"));
-      chip(ts.filter(function(t){ return t.priority===1; }).length,"warn","🔴");
-      chip(ts.filter(function(t){ return t.status==="waiting"; }).length,"","待ち");
-      chip(ts.filter(function(t){ return !t.next_action; }).length,"warn","一手なし");
-      chip(doneByProj[k]||0,"done","済");
-      r.appendChild(n);
-      r.onclick=function(){ jumpToProject(k); };
-      wrap.appendChild(r);
     });
-    card.appendChild(wrap);
+    tb.appendChild(tbody);
+    host.appendChild(tb);
   }
 
   function goalCard(g,ts,names,showBar){
@@ -940,7 +988,7 @@ function renderMap(L2){
     num("待ち",ts.filter(function(t){ return t.status==="waiting"; }).length);
     num("次の一手なし",ts.filter(function(t){ return !t.next_action; }).length,true);
     c.appendChild(n);
-    projList(c,names);
+    projTable(c,names,g.code);
     return c;
   }
 
@@ -975,7 +1023,7 @@ function renderMap(L2){
     var on=el("div","gnums");
     var od=el("div"); od.appendChild(el("div","v num",String(ots.length))); od.appendChild(el("div","k","残タスク")); on.appendChild(od);
     oc.appendChild(on);
-    projList(oc,outNames);
+    projTable(oc,outNames,"OUT");
     L2.appendChild(oc);
   }
 
@@ -994,6 +1042,7 @@ function renderMap(L2){
   var tbody=el("tbody");
   order.forEach(function(k){
     var ts=byProj[k];
+    var key="ALL:"+k, open=!S.closed[key];
     var urgent=ts.filter(function(t){return t.priority===1;}).length;
     var wait=ts.filter(function(t){return t.status==="waiting";}).length;
     var non=ts.filter(function(t){return !t.next_action;}).length;
@@ -1004,8 +1053,9 @@ function renderMap(L2){
       (t.roles||[]).forEach(function(r){ if(gset.indexOf(r)<0) gset.push(r); });
     });
     gset.sort();
-    var tr=el("tr");
+    var tr=el("tr","prow"+(open?" open":""));
     var c1=el("td");
+    c1.appendChild(el("span","caret",open?"▼":"▶"));
     c1.appendChild(document.createTextNode(k));
     gset.forEach(function(code){ c1.appendChild(el("span","gtag",goalLabel(code))); });
     if(!gset.length) c1.appendChild(el("span","gtag none","評価の紐づけなし"));
@@ -1017,15 +1067,20 @@ function renderMap(L2){
     cell(non);
     cell(rp);
     cell(doneByProj[k]||0,"okc");
-    tr.onclick=function(){ jumpToProject(k); };
+    tr.onclick=function(){ S.closed[key]=open; render(); };
     tbody.appendChild(tr);
+    if(open){
+      var td=el("td"); td.colSpan=7; td.className="expand";
+      ts.slice().sort(byPri).forEach(function(t){ td.appendChild(card(t)); });
+      var er=el("tr","exp"); er.appendChild(td); tbody.appendChild(er);
+    }
   });
   tb.appendChild(tbody);
   L2.appendChild(tb);
 
   var nn=live.filter(function(t){ return !t.next_action; }).length;
   L2.appendChild(el("p","note",
-    "案件を押すと、その案件だけを開いた状態で「全部」タブに移ります。"+
+    "案件を押すと、その場でタスクが開きます（画面は移動しません）。タスクを押すと詳細が出ます。"+
     "「一手なし」は、次に何をするか決まっていないタスクです。現在 "+nn+" 件。"+
     "ここが埋まっていないものほど放置されます。「再開」は再開プロンプトが書いてある件数、「済」は完了ログの件数です。"));
 }
@@ -1258,7 +1313,7 @@ $("li_go").onclick=function(){
 $("li_pass").onkeydown=function(e){ if(e.key==="Enter") $("li_go").click(); };
 
 Array.prototype.forEach.call(document.querySelectorAll(".tabs button"),function(b){
-  b.onclick=function(){ S.tab=b.dataset.tab; render(); window.scrollTo(0,0); };
+  b.onclick=function(){ S.tab=b.dataset.tab; S.pick=null; render(); window.scrollTo(0,0); };
 });
 $("scrim").onclick=closeSheet;
 $("quickgo").onclick=function(){
