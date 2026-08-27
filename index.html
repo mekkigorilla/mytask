@@ -91,6 +91,16 @@ header{
 .tabs .n{font-size:11px;margin-left:5px;color:var(--ink-3)}
 .tabs button.on .n{color:var(--dye-2)}
 
+/* 仕事／私用の切り替え。タブとは別の軸なので、見た目もタブと変える（右端の小さな箱） */
+.areasw{display:flex;margin-left:auto;align-self:center;margin-bottom:9px;
+  border:1px solid var(--rule);border-radius:5px;overflow:hidden}
+.areasw button{padding:3px 9px;font-size:11px;font-weight:500;color:var(--ink-3);
+  border:0;border-bottom:0;margin:0;background:transparent;transition:background .15s,color .15s}
+.areasw button+button{border-left:1px solid var(--rule)}
+.areasw button:hover{color:var(--ink-2)}
+.areasw button.on{color:var(--ink);background:var(--sunk);font-weight:700}
+@media(max-width:520px){ .areasw{margin-left:12px} }
+
 /* ---------- 区切り ---------- */
 .sec{
   display:flex;align-items:baseline;gap:10px;
@@ -149,6 +159,8 @@ header{
   border:1px solid var(--rule);border-radius:4px;padding:0 5px;
   font-size:10.5px;color:var(--ink-2);
 }
+/* 私用の印。目立たせすぎない。仕事の中に紛れていても見分けがつけばよい */
+.pill.priv{color:var(--dye-2);border-color:var(--dye-4);font-weight:700}
 /* 更新日。ふだんは黙っていて、直近で触ったものだけが色を持つ */
 .upd{color:var(--ink-3)}
 .upd.fresh{color:var(--dye-2);font-weight:700}
@@ -449,6 +461,11 @@ header{
         <button data-tab="waiting">待ち<span class="n num" id="n_wait"></span></button>
         <button data-tab="all">全部<span class="n num" id="n_all"></span></button>
         <button data-tab="map">まとめ</button>
+        <div class="areasw" id="areasw">
+          <button data-area="all" class="on">全部</button>
+          <button data-area="仕事">仕事</button>
+          <button data-area="私用">私用</button>
+        </div>
       </div>
     </div>
   </header>
@@ -475,7 +492,30 @@ var SB   = "https://neqnasakfyyttdbrgaaq.supabase.co";
 var ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5lcW5hc2FrZnl5dHRkYnJnYWFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNzMwNjQsImV4cCI6MjEwMjg0OTA2NH0.LIThEpesQ-YQlXMm8JrfAyGD2rAf2XCUPbB5jhPeMEE";
 var KEY  = "mytask.session.v1";
 
-var S = { tab:"today", tasks:[], done:[], goals:[], sess:null, allMode:"project", updDir:"desc", pick:null, closed:{} };
+/* area（仕事／私用）は「表示するもの」を切り替えるだけ。リストは1本のまま。
+   2つのリストに分けると片方が開かれなくなる（過去2回の失敗と同じ形）ので分けない。
+   allTasks / allDone に全件を持ち、S.tasks / S.done は絞り込んだ結果を入れる。
+   こうしておくと、既存の集計や描画に手を入れずに絞り込みが効く。 */
+var S = { tab:"today", area:"all", tasks:[], done:[], allTasks:[], allDone:[],
+          goals:[], sess:null, allMode:"project", updDir:"desc", pick:null, closed:{} };
+
+function areaOf(t){ return (t && t.area) || "仕事"; }
+
+function applyArea(){
+  if(S.area==="all"){
+    S.tasks=S.allTasks.slice();
+    S.done =S.allDone.slice();
+    return;
+  }
+  S.tasks=S.allTasks.filter(function(t){ return areaOf(t)===S.area; });
+  /* 完了ログには area が無いので、元のタスクを引いて判断する。
+     タスクごと消された分は元をたどれないので、絞り込み中は出さない。 */
+  S.done=S.allDone.filter(function(x){
+    for(var i=0;i<S.allTasks.length;i++)
+      if(S.allTasks[i].id===x.task_id) return areaOf(S.allTasks[i])===S.area;
+    return false;
+  });
+}
 
 /* ---------- 日付（すべてローカル時刻） ---------- */
 function today0(){ var d=new Date(); d.setHours(0,0,0,0); return d; }
@@ -554,12 +594,14 @@ function loadAll(){
     api(L+"?select=*&order=done_at.desc&limit=200").then(function(r){ return r.json(); }),
     api("/rest/v1/mytask_goal?select=*&order=sort.asc").then(function(r){ return r.json(); })
   ]).then(function(a){
-    S.tasks=Array.isArray(a[0])?a[0]:[];
-    S.done =Array.isArray(a[1])?a[1]:[];
-    S.goals=Array.isArray(a[2])?a[2]:[];
+    S.allTasks=Array.isArray(a[0])?a[0]:[];
+    S.allDone =Array.isArray(a[1])?a[1]:[];
+    S.goals   =Array.isArray(a[2])?a[2]:[];
+    applyArea();
   });
 }
-function find(id){ for(var i=0;i<S.tasks.length;i++) if(S.tasks[i].id===id) return S.tasks[i]; return null; }
+/* 絞り込みで隠れているタスクも操作できるよう、全件から探す */
+function find(id){ for(var i=0;i<S.allTasks.length;i++) if(S.allTasks[i].id===id) return S.allTasks[i]; return null; }
 function patch(id,body){
   var t=find(id); if(t) Object.assign(t,body); render();
   return api(T+"?id=eq."+id,{method:"PATCH",body:JSON.stringify(body)}).then(loadAll).then(render);
@@ -628,6 +670,8 @@ function card(t,opt){
 
   var m=el("div","meta");
   function add(node){ if(m.childNodes.length) m.appendChild(el("span","sep","·")); m.appendChild(node); }
+  /* 私用だけ印を出す。仕事が大多数なので、そちらに印を付けると全部に付いて意味がなくなる */
+  if(areaOf(t)!=="仕事") add(el("span","pill priv",areaOf(t)));
   add(el("span","proj",t.project));
   var dl=dueLabel(t); if(dl) add(el("span","due num"+(dl.over?" over":""),dl.s));
   var ul=updLabel(t.updated_at);
@@ -711,8 +755,11 @@ function render(){
   $("n_wait").textContent=wl.length||"";
   $("n_all").textContent=tl.length+wl.length+ol.length;
 
-  Array.prototype.forEach.call(document.querySelectorAll(".tabs button"),function(b){
+  Array.prototype.forEach.call(document.querySelectorAll(".tabs > button"),function(b){
     b.classList.toggle("on",b.dataset.tab===S.tab);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll(".areasw button"),function(b){
+    b.classList.toggle("on",b.dataset.area===S.area);
   });
 
   var L2=$("list"); L2.innerHTML="";
@@ -1205,6 +1252,20 @@ function openSheet(t){
   });
   pw.appendChild(ps); body.appendChild(pw);
 
+  /* 仕事か私用か。迷ったときの基準を画面にも出しておく（毎回悩むと分類が続かない） */
+  var aw=el("div","fld");
+  aw.appendChild(el("label",null,"仕事 / 私用"));
+  var as=el("div","seg");
+  ["仕事","私用"].forEach(function(v){
+    var b=el("button",areaOf(t)===v?"on":null,v);
+    b.onclick=function(){ patch(t.id,{area:v}); closeSheet(); };
+    as.appendChild(b);
+  });
+  aw.appendChild(as);
+  aw.appendChild(el("p","hint","叶さんに進捗を報告する義務があれば「仕事」。"
+                    +"なければ「私用」（仕事で使う道具でも、振られた仕事でなければ私用）"));
+  body.appendChild(aw);
+
   var dw=el("div","fld"); dw.appendChild(el("label",null,"締切"));
   var di=el("input"); di.type="date"; di.value=t.deadline||"";
   di.onchange=function(){ patch(t.id,{deadline:di.value||null}); };
@@ -1342,15 +1403,33 @@ $("li_go").onclick=function(){
 };
 $("li_pass").onkeydown=function(e){ if(e.key==="Enter") $("li_go").click(); };
 
-Array.prototype.forEach.call(document.querySelectorAll(".tabs button"),function(b){
+/* 「> button」で直接の子だけを取る。仕事／私用の切り替えも .tabs の中にあるので、
+   ここで拾ってしまうと S.tab が undefined になって画面が空になる */
+Array.prototype.forEach.call(document.querySelectorAll(".tabs > button"),function(b){
   b.onclick=function(){ S.tab=b.dataset.tab; S.pick=null; render(); window.scrollTo(0,0); };
 });
+
+/* 仕事／私用の切り替え。選んだ状態は端末に覚えさせる（毎回選び直させない） */
+Array.prototype.forEach.call(document.querySelectorAll(".areasw button"),function(b){
+  b.onclick=function(){
+    S.area=b.dataset.area;
+    try{ localStorage.setItem("mytask.area",S.area); }catch(e){}
+    applyArea(); S.pick=null; render(); window.scrollTo(0,0);
+  };
+});
+try{
+  var savedArea=localStorage.getItem("mytask.area");
+  if(savedArea==="仕事"||savedArea==="私用"||savedArea==="all") S.area=savedArea;
+}catch(e){}
 $("scrim").onclick=closeSheet;
 $("quickgo").onclick=function(){
   var v=$("quick").value.trim(); if(!v) return;
   $("quick").value="";
-  create({title:v,project:"受信箱",priority:3,status:"open"});
-  toast("受信箱に追加しました");
+  /* 私用で絞り込んでいる最中に足したものは私用にする。
+     仕事で作ると、追加した直後に画面から消えて「入らなかった」と誤解する */
+  var ar=(S.area==="私用")?"私用":"仕事";
+  create({title:v,project:"受信箱",priority:3,status:"open",area:ar});
+  toast(ar==="私用"?"受信箱に追加しました（私用）":"受信箱に追加しました");
 };
 $("quick").onkeydown=function(e){ if(e.key==="Enter") $("quickgo").click(); };
 
