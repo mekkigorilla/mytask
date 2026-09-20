@@ -509,6 +509,86 @@ header{
 .fld .seg{flex-wrap:wrap}   /* 種別は6つある。狭い画面で折り返す */
 .fld .two{display:flex;gap:10px}
 .fld .two > div{flex:1}
+/* ---------- チボビ（かけはしと同じ子） ----------
+   かわいくしすぎない。線は細く、色は画面の藍に寄せる。 */
+.chibi{flex:none;margin-bottom:-2px}
+.chibi .body{fill:var(--ink-3)}
+#pet{
+  position:fixed;left:120px;z-index:10;pointer-events:none;
+  bottom:calc(64px + env(safe-area-inset-bottom));
+  transition:left 3s linear;will-change:left;opacity:.85;
+}
+#pet .bob{display:block}
+#pet.walk .bob{animation:bob .5s infinite}
+#pet.run  .bob{animation:bob .22s infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+#pet.flip .dogside{transform:scaleX(-1)}
+#pet.sleep .bob{animation:none;transform:translateY(9px) scaleY(.5)}
+#pet .leg{transform-box:fill-box;transform-origin:50% 0}
+#pet.walk .lf,#pet.walk .lb2{animation:step .5s infinite}
+#pet.walk .lb,#pet.walk .lf2{animation:step .5s infinite;animation-delay:-.25s}
+#pet.run  .lf,#pet.run  .lb2{animation:step .22s infinite}
+#pet.run  .lb,#pet.run  .lf2{animation:step .22s infinite;animation-delay:-.11s}
+@keyframes step{0%,100%{transform:rotate(-16deg)}50%{transform:rotate(16deg)}}
+#pet .zzz{position:absolute;top:-15px;right:-2px;font-size:13px;opacity:0}
+#pet.sleep .zzz{opacity:1;animation:zfloat 1.8s infinite}
+@keyframes zfloat{0%{transform:translateY(0);opacity:.2}50%{opacity:1}100%{transform:translateY(-8px);opacity:0}}
+@media (prefers-reduced-motion:reduce){ #pet{display:none} }
+
+/* ---------- パソコンの横長画面（2026-09-21） ----------
+   スマホは縦に積む。横長では左に案件の一覧を置き、カードを2列に流して
+   縦のスクロールを減らす。詳細はこれまでどおり浮き出す窓（ポップアップ）。 */
+.side{display:none}
+.sidehead{
+  font-size:10.5px;font-weight:700;letter-spacing:.11em;color:var(--ink-3);
+  margin:0 0 9px;padding:0 3px;
+}
+.pbtn{
+  display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:7px 10px;border-radius:9px;font-size:13px;line-height:1.5;
+  color:var(--ink-2);border:1px solid transparent;
+}
+.pbtn .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pbtn .c{font-size:11px;color:var(--ink-3);font-family:var(--font-mono);flex:none}
+.pbtn .u{width:6px;height:6px;border-radius:50%;background:var(--dye-1);flex:none}
+.pbtn .u.z{background:transparent}
+.pbtn:hover{background:var(--sunk);color:var(--ink)}
+.pbtn.on{background:var(--card);border-color:var(--dye-2);color:var(--ink);font-weight:700}
+.pbanner{
+  display:flex;align-items:center;gap:10px;margin:18px 0 2px;padding:8px 12px;
+  background:var(--card);border:1px solid var(--rule);border-radius:10px;font-size:13px;
+}
+.pbanner button{margin-left:auto;font-size:12px;color:var(--dye-2)}
+.pbanner button:hover{text-decoration:underline}
+
+@media (min-width:1000px){
+  .wrap{max-width:1180px;padding:0 28px 120px}
+  .addbar .in{max-width:1180px}
+  .cols{display:grid;grid-template-columns:250px minmax(0,1fr);gap:30px;align-items:start}
+  .side{
+    display:block;position:sticky;top:calc(var(--hh,156px) + 18px);
+    max-height:calc(100vh - var(--hh,156px) - 46px);overflow:auto;
+  }
+  /* カードは2列に流す。見出し・表・案内は横いっぱいのまま */
+  #list{display:grid;grid-template-columns:1fr 1fr;column-gap:16px;align-content:start}
+  #list > *{grid-column:1/-1}
+  #list > .task,#list > .prow,#list > .donerow{grid-column:auto}
+  /* 詳細は画面の真ん中に浮かせる。下から出るシートは横長だと縦に長すぎる */
+  .sheet{
+    left:50%;right:auto;bottom:auto;top:50%;transform:translate(-50%,-50%);
+    width:min(760px,92vw);max-height:84vh;border-radius:16px;
+    box-shadow:0 18px 60px rgba(9,18,25,.4);padding:14px 26px 26px;
+  }
+  .grip{display:none}
+  .sheet .max{max-width:none}
+  .cal .cell{min-height:98px}
+  .cal .ev{font-size:11px}
+  .flow{max-width:520px}
+}
+@media (min-width:1420px){
+  .wrap{max-width:1360px}
+  #list{grid-template-columns:1fr 1fr 1fr}
+}
 </style>
 </head>
 <body>
@@ -527,6 +607,17 @@ header{
   <header>
     <div class="wrap" style="padding-bottom:0">
       <div class="hrow">
+        <svg class="chibi" viewBox="0 0 64 64" width="34" height="34" aria-hidden="true">
+          <path d="M14 15 L20 3 L28 17 Z" fill="#6b7280"/>
+          <path d="M50 15 L44 3 L36 17 Z" fill="#6b7280"/>
+          <rect x="16" y="11" width="32" height="30" rx="14" fill="#9ca3af"/>
+          <ellipse cx="25" cy="23" rx="6" ry="3.4" fill="#e5e7eb"/>
+          <ellipse cx="39" cy="23" rx="6" ry="3.4" fill="#e5e7eb"/>
+          <circle cx="25" cy="25.5" r="2.1" fill="#1f2937"/>
+          <circle cx="39" cy="25.5" r="2.1" fill="#1f2937"/>
+          <path d="M18 35 Q32 33 46 35 Q48 54 32 58 Q16 54 18 35 Z" fill="#eef2f5"/>
+          <rect x="28" y="33" width="8" height="6" rx="3" fill="#1f2937"/>
+        </svg>
         <span class="brand">TASK</span>
         <span class="today" id="today"></span>
       </div>
@@ -545,7 +636,10 @@ header{
       </div>
     </div>
   </header>
-  <div class="wrap" id="list"></div>
+  <div class="wrap cols">
+    <aside class="side" id="side"></aside>
+    <div id="list"></div>
+  </div>
 </div>
 
 <div class="addbar hide" id="addbar">
@@ -558,6 +652,25 @@ header{
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet"><div class="grip"></div><div class="max" id="sheetBody"></div></div>
 <div class="revive" id="revive"><div class="max" id="reviveBody"></div></div>
+<div id="pet" aria-hidden="true">
+  <div class="zzz">💤</div>
+  <div class="bob">
+    <svg class="dogside" viewBox="0 0 84 60" width="56" height="40">
+      <path d="M18 26 Q9 20 11 11 Q18 17 24 24 Z" fill="#6b7280"/>
+      <ellipse cx="42" cy="30" rx="23" ry="13" fill="#9ca3af"/>
+      <rect class="leg lb"  x="26" y="38" width="6" height="15" rx="3" fill="#6b7280"/>
+      <rect class="leg lb2" x="34" y="38" width="6" height="15" rx="3" fill="#7c8594"/>
+      <rect class="leg lf2" x="48" y="38" width="6" height="15" rx="3" fill="#7c8594"/>
+      <rect class="leg lf"  x="56" y="38" width="6" height="15" rx="3" fill="#6b7280"/>
+      <circle cx="66" cy="24" r="12" fill="#9ca3af"/>
+      <path d="M59 14 L62 4 L68 13 Z" fill="#6b7280"/>
+      <ellipse cx="69" cy="20" rx="3.4" ry="2" fill="#e5e7eb"/>
+      <circle cx="70" cy="22" r="1.6" fill="#1f2937"/>
+      <path d="M60 28 Q66 27 74 29 Q76 40 66 42 Q58 38 60 28 Z" fill="#eef2f5"/>
+      <rect x="74" y="26" width="6" height="5" rx="2.5" fill="#1f2937"/>
+    </svg>
+  </div>
+</div>
 <div class="toast" id="toast"><span id="toastMsg"></span><button id="toastUndo" class="hide">元に戻す</button></div>
 
 <script>
@@ -574,7 +687,7 @@ var KEY  = "mytask.session.v1";
    こうしておくと、既存の集計や描画に手を入れずに絞り込みが効く。 */
 var S = { tab:"today", area:"all", tasks:[], done:[], allTasks:[], allDone:[],
           goals:[], plans:[], trips:[], sess:null, allMode:"project", updDir:"desc",
-          pick:null, closed:{},
+          pick:null, closed:{}, proj:null,
           /* 予定タブ。planMode は「月のマス目」か「日付順」 */
           planMode:"month", planPast:false, calPick:null,
           calY:new Date().getFullYear(), calM:new Date().getMonth()+1 };
@@ -585,6 +698,7 @@ function applyArea(){
   if(S.area==="all"){
     S.tasks=S.allTasks.slice();
     S.done =S.allDone.slice();
+    applyProj();
     return;
   }
   S.tasks=S.allTasks.filter(function(t){ return areaOf(t)===S.area; });
@@ -595,6 +709,20 @@ function applyArea(){
       if(S.allTasks[i].id===x.task_id) return areaOf(S.allTasks[i])===S.area;
     return false;
   });
+  applyProj();
+}
+
+/* 横長画面で案件を選んでいるときは、その案件だけに絞る。
+   絞り込みを1か所（ここ）に集めておくと、集計も描画もそのままで効く */
+function applyProj(){
+  if(!S.proj) return;
+  var keep={};
+  S.tasks=S.tasks.filter(function(t){
+    var on=(t.project||"その他")===S.proj;
+    if(on) keep[t.id]=1;
+    return on;
+  });
+  S.done=S.done.filter(function(x){ return keep[x.task_id]; });
 }
 
 /* ---------- 日付（すべてローカル時刻） ---------- */
@@ -848,7 +976,19 @@ function render(){
     b.classList.toggle("on",b.dataset.area===S.area);
   });
 
+  syncHeadHeight();
+  renderSide();
+
   var L2=$("list"); L2.innerHTML="";
+  /* 案件で絞っているあいだは、何で絞っているかを画面に出す（迷子にしない） */
+  if(S.proj){
+    var bn=el("div","pbanner");
+    bn.appendChild(el("span",null,"案件："+S.proj));
+    var off=el("button",null,"全部に戻す");
+    off.onclick=function(){ S.proj=null; applyArea(); render(); };
+    bn.appendChild(off);
+    L2.appendChild(bn);
+  }
   if(S.tab==="today")   renderToday(L2,tl);
   if(S.tab==="plan")    renderPlan(L2);
   if(S.tab==="waiting") renderWaiting(L2,wl);
@@ -1860,6 +2000,82 @@ function openTripSheet(t){
   showSheet();
 }
 
+/* ---------- パソコンの横長画面：左の案件一覧 ----------
+   スマホでは出さない（編集場所を増やさない。スマホはリモコンのまま）。 */
+function renderSide(){
+  var side=$("side"); if(!side) return;
+  side.innerHTML="";
+  var live=S.allTasks.filter(function(t){
+    if(t.status==="done") return false;
+    return S.area==="all"||areaOf(t)===S.area;
+  });
+  var by={}, order=[];
+  live.forEach(function(t){
+    var k=t.project||"その他";
+    if(!by[k]){ by[k]=[]; order.push(k); }
+    by[k].push(t);
+  });
+  /* 緊急があるものを上に。次に件数の多い順 */
+  order.sort(function(a,b){
+    var ua=by[a].filter(function(t){ return t.priority===1; }).length;
+    var ub=by[b].filter(function(t){ return t.priority===1; }).length;
+    if(ua!==ub) return ub-ua;
+    return by[b].length-by[a].length;
+  });
+
+  side.appendChild(el("div","sidehead","案件　"+order.length));
+
+  function row(label,count,urgent,key){
+    var b=el("button","pbtn"+(S.proj===key?" on":""));
+    b.appendChild(el("span","u"+(urgent?"":" z")));
+    b.appendChild(el("span","t",label));
+    b.appendChild(el("span","c num",String(count)));
+    b.onclick=function(){
+      S.proj=key; S.pick=null;
+      if(key){ S.tab="all"; S.allMode="project"; }
+      applyArea(); render(); window.scrollTo(0,0);
+    };
+    return b;
+  }
+  side.appendChild(row("全部の案件",live.length,0,null));
+  order.forEach(function(k){
+    side.appendChild(row(k,by[k].length,by[k].filter(function(t){ return t.priority===1; }).length,k));
+  });
+}
+
+/* 左の一覧を固定する位置は、見出しの高さで決まる。高さは中身で変わるので測って渡す */
+function syncHeadHeight(){
+  var h=document.querySelector("header");
+  if(h) document.documentElement.style.setProperty("--hh",h.offsetHeight+"px");
+}
+
+/* ---------- チボビ ----------
+   かけはしと同じ子。歩く・走る・寝るだけにしてある（かけはしの粗相は入れていない）。 */
+function startChibi(){
+  var pet=$("pet"); if(!pet) return;
+  var x=120;
+  function vw(){ return Math.max(320,window.innerWidth); }
+  function go(t,dur){ x=t; pet.style.transitionDuration=dur+"s"; pet.style.left=t+"px"; }
+  function state(s){ pet.classList.remove("walk","run","sleep"); if(s) pet.classList.add(s); }
+  function face(d){ pet.classList.toggle("flip",d<0); }
+  function walk(run){
+    var t=30+Math.random()*(vw()-140);
+    face(t<x?-1:1); state(run?"run":"walk");
+    var dur=Math.max(.6,Math.abs(t-x)/(run?260:90));
+    go(t,dur);
+    return dur*1000+300;
+  }
+  function tick(){
+    var r=Math.random(), wait;
+    if(r<0.34)      wait=walk(false);
+    else if(r<0.48) wait=walk(true);
+    else if(r<0.70){ state(""); go(x,0); wait=2000+Math.random()*3000; }
+    else            { state("sleep"); go(x,0); wait=6000+Math.random()*6000; }
+    setTimeout(tick,wait);
+  }
+  setTimeout(tick,1800);
+}
+
 /* ---------- 起動 ---------- */
 function showMain(){
   $("loginView").classList.add("hide");
@@ -1889,7 +2105,10 @@ $("li_pass").onkeydown=function(e){ if(e.key==="Enter") $("li_go").click(); };
 /* 「> button」で直接の子だけを取る。仕事／私用の切り替えも .tabs の中にあるので、
    ここで拾ってしまうと S.tab が undefined になって画面が空になる */
 Array.prototype.forEach.call(document.querySelectorAll(".tabs > button"),function(b){
-  b.onclick=function(){ S.tab=b.dataset.tab; S.pick=null; render(); window.scrollTo(0,0); };
+  b.onclick=function(){
+    S.tab=b.dataset.tab; S.pick=null; S.proj=null;
+    applyArea(); render(); window.scrollTo(0,0);
+  };
 });
 
 /* 仕事／私用の切り替え。選んだ状態は端末に覚えさせる（毎回選び直させない） */
@@ -1919,6 +2138,9 @@ $("quickgo").onclick=function(){
   toast(ar==="私用"?"受信箱に追加しました（私用）":"受信箱に追加しました");
 };
 $("quick").onkeydown=function(e){ if(e.key==="Enter") $("quickgo").click(); };
+
+startChibi();
+window.addEventListener("resize",syncHeadHeight);
 
 (function boot(){
   loadSess();
