@@ -434,6 +434,81 @@ header{
 @media (prefers-reduced-motion:reduce){
   *,*::before{animation:none !important;transition:none !important}
 }
+/* ---------- 予定（カレンダー） ----------
+   見方は2つだけ。月のマス目（全体を見る）と、日付順（その日の中の順番を見る）。
+   繰り返し・終日・重なりの判定は入れていない。入れると編集項目が増えて続かない。 */
+.calbar{display:flex;align-items:center;gap:8px;margin:16px 0 10px}
+.calbar .ym{font-size:16.5px;font-weight:700;letter-spacing:.02em}
+.calbar .btn{padding:5px 11px}
+.cal{
+  display:grid;grid-template-columns:repeat(7,1fr);gap:1px;
+  background:var(--rule);border:1px solid var(--rule);border-radius:12px;overflow:hidden;
+}
+.cal .dow{
+  background:var(--sunk);text-align:center;padding:5px 0;
+  font-size:11px;font-weight:700;color:var(--ink-2);letter-spacing:.06em;
+}
+.cal .dow.sun{color:#A8503C} .cal .dow.sat{color:var(--dye-2)}
+@media (prefers-color-scheme:dark){ .cal .dow.sun{color:#D98A76} }
+.cal .cell{
+  background:var(--card);min-height:76px;padding:4px 4px 6px;
+  text-align:left;display:block;width:100%;overflow:hidden;
+}
+.cal .cell:hover{background:var(--sunk)}
+.cal .cell.out{background:var(--sunk);opacity:.5}
+.cal .cell.trip{background:var(--warm-bg)}
+.cal .cell.on{box-shadow:inset 0 0 0 2px var(--dye-2)}
+.cal .dnum{
+  font-family:var(--font-mono);font-variant-numeric:tabular-nums;
+  font-size:11.5px;color:var(--ink-2);display:inline-block;margin-bottom:2px;
+}
+.cal .cell.today .dnum{background:var(--dye-2);color:#fff;border-radius:999px;padding:0 5px}
+.cal .ev{
+  font-size:10px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  border-left:3px solid var(--dye-3);padding-left:3px;margin-bottom:1px;background:var(--sunk);
+  border-radius:0 3px 3px 0;
+}
+.cal .cell.trip .ev{background:var(--card)}
+.cal .more{font-size:9.5px;color:var(--ink-3);padding-left:3px}
+.ev.k-move{border-left-color:var(--dye-3)}
+.ev.k-stay{border-left-color:var(--dye-4)}
+.ev.k-site{border-left-color:var(--warm)}
+.ev.k-meet{border-left-color:var(--dye-2)}
+.ev.k-off {border-left-color:var(--ink-3)}
+.ev.k-etc {border-left-color:var(--rule)}
+.ev.due   {border-left-color:var(--dye-1);color:var(--ink-2)}
+
+/* 日付順・その日の中身 */
+.prow{
+  display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;
+  background:var(--card);border:1px solid var(--rule);border-radius:11px;
+  padding:9px 12px;margin-bottom:6px;
+}
+.prow:hover{border-color:var(--ink-3)}
+.prow .tm{flex:none;min-width:46px}
+.prow .tm div{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--ink)}
+.prow .tm .tm2{font-size:10.5px;color:var(--ink-3)}
+.prow .tt{font-size:14.5px;font-weight:500;line-height:1.5}
+.prow .pl{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.kchip{
+  font-size:10px;padding:1px 7px;border-radius:999px;margin-left:7px;
+  border:1px solid var(--rule);color:var(--ink-2);vertical-align:1px;
+  border-left-width:3px;
+}
+.tripcard{
+  display:block;width:100%;text-align:left;background:var(--card);
+  border:1px solid var(--warm-line);border-left:4px solid var(--warm);
+  border-radius:11px;padding:9px 12px;margin-bottom:7px;
+}
+.tripcard .tn{font-size:14.5px;font-weight:700}
+.tripcard .td{font-size:11.5px;color:var(--ink-2);margin-top:2px;font-variant-numeric:tabular-nums}
+.fld select{
+  width:100%;padding:9px 11px;border:1px solid var(--rule);border-radius:9px;
+  background:var(--sunk);color:var(--ink);
+}
+.fld .seg{flex-wrap:wrap}   /* 種別は6つある。狭い画面で折り返す */
+.fld .two{display:flex;gap:10px}
+.fld .two > div{flex:1}
 </style>
 </head>
 <body>
@@ -458,6 +533,7 @@ header{
       <div class="flow" id="flow"></div>
       <div class="tabs">
         <button data-tab="today" class="on">今日<span class="n num" id="n_today"></span></button>
+        <button data-tab="plan">予定<span class="n num" id="n_plan"></span></button>
         <button data-tab="waiting">待ち<span class="n num" id="n_wait"></span></button>
         <button data-tab="all">全部<span class="n num" id="n_all"></span></button>
         <button data-tab="map">まとめ</button>
@@ -497,7 +573,11 @@ var KEY  = "mytask.session.v1";
    allTasks / allDone に全件を持ち、S.tasks / S.done は絞り込んだ結果を入れる。
    こうしておくと、既存の集計や描画に手を入れずに絞り込みが効く。 */
 var S = { tab:"today", area:"all", tasks:[], done:[], allTasks:[], allDone:[],
-          goals:[], sess:null, allMode:"project", updDir:"desc", pick:null, closed:{} };
+          goals:[], plans:[], trips:[], sess:null, allMode:"project", updDir:"desc",
+          pick:null, closed:{},
+          /* 予定タブ。planMode は「月のマス目」か「日付順」 */
+          planMode:"month", planPast:false, calPick:null,
+          calY:new Date().getFullYear(), calM:new Date().getMonth()+1 };
 
 function areaOf(t){ return (t && t.area) || "仕事"; }
 
@@ -587,16 +667,21 @@ function api(path,opt){
   });
 }
 var T="/rest/v1/mytask_task", L="/rest/v1/mytask_done_log";
+var P="/rest/v1/mytask_plan", TR="/rest/v1/mytask_trip";
 
 function loadAll(){
   return Promise.all([
     api(T+"?select=*&order=sort_order.asc").then(function(r){ return r.json(); }),
     api(L+"?select=*&order=done_at.desc&limit=200").then(function(r){ return r.json(); }),
-    api("/rest/v1/mytask_goal?select=*&order=sort.asc").then(function(r){ return r.json(); })
+    api("/rest/v1/mytask_goal?select=*&order=sort.asc").then(function(r){ return r.json(); }),
+    api(P+"?select=*&order=date.asc,start_time.asc.nullsfirst").then(function(r){ return r.json(); }),
+    api(TR+"?select=*&order=start_date.asc").then(function(r){ return r.json(); })
   ]).then(function(a){
     S.allTasks=Array.isArray(a[0])?a[0]:[];
     S.allDone =Array.isArray(a[1])?a[1]:[];
     S.goals   =Array.isArray(a[2])?a[2]:[];
+    S.plans   =Array.isArray(a[3])?a[3]:[];
+    S.trips   =Array.isArray(a[4])?a[4]:[];
     applyArea();
   });
 }
@@ -753,6 +838,7 @@ function render(){
   var tl=todays(), wl=waits(), ol=open_();
   $("n_today").textContent=tl.length||"";
   $("n_wait").textContent=wl.length||"";
+  $("n_plan").textContent=(typeof plansOn==="function"?plansOn(ymd(today0())).length:0)||"";
   $("n_all").textContent=tl.length+wl.length+ol.length;
 
   Array.prototype.forEach.call(document.querySelectorAll(".tabs > button"),function(b){
@@ -764,6 +850,7 @@ function render(){
 
   var L2=$("list"); L2.innerHTML="";
   if(S.tab==="today")   renderToday(L2,tl);
+  if(S.tab==="plan")    renderPlan(L2);
   if(S.tab==="waiting") renderWaiting(L2,wl);
   if(S.tab==="all")     renderAll(L2);
   if(S.tab==="map")     renderMap(L2);
@@ -776,6 +863,12 @@ function render(){
 }
 
 function renderToday(L2,tl){
+  /* 今日の予定を先に出す。タスクの前に、まず今日の形が分かるように */
+  var tp=plansOn(ymd(today0()));
+  if(tp.length){
+    L2.appendChild(sec("今日の予定",tp.length));
+    tp.forEach(function(p){ L2.appendChild(planRow(p)); });
+  }
   if(tl.length===0){
     var e=el("div","empty");
     e.appendChild(el("div","big","今日の箱は空です"));
@@ -1377,6 +1470,396 @@ function maybeRevive(){
     }).catch(function(){});
 }
 
+/* ---------- 予定（カレンダー） ----------
+   置くのは索引だけ。音声・写真・文字起こしの中身はここに入れない（自宅PCのローカルに置く）。
+   見方は「月のマス目」と「日付順」の2つ。繰り返し・終日・重なりの判定は入れていない。 */
+var KINDS=["移動","宿泊","現場","会議","オフ","その他"];
+var KCLS={"移動":"k-move","宿泊":"k-stay","現場":"k-site","会議":"k-meet","オフ":"k-off","その他":"k-etc"};
+var DOW="日月火水木金土";
+
+function hhmm(t){ return t?String(t).slice(0,5):""; }
+function planList(){
+  return S.plans.filter(function(p){ return S.area==="all"||areaOf(p)===S.area; });
+}
+function cmpTime(a,b){
+  /* 時刻なしは、その日の先頭に置く（終日の予定に近い扱い） */
+  var x=a.start_time||"", y=b.start_time||"";
+  if(x!==y) return x<y?-1:1;
+  return (a.title||"")<(b.title||"")?-1:1;
+}
+function plansOn(d){ return planList().filter(function(p){ return p.date===d; }).sort(cmpTime); }
+function duesOn(d){ return S.tasks.filter(function(t){ return t.status!=="done"&&t.deadline===d; }); }
+function tripOf(id){ if(!id) return null; for(var i=0;i<S.trips.length;i++) if(S.trips[i].id===id) return S.trips[i]; return null; }
+function tripOn(d){
+  for(var i=0;i<S.trips.length;i++){
+    var t=S.trips[i];
+    if(t.start_date&&t.end_date&&d>=t.start_date&&d<=t.end_date) return t;
+  }
+  return null;
+}
+function dayLabel(key){
+  var d=parseYmd(key); if(!d) return key;
+  var n=Math.round((d-today0())/86400000);
+  var s=(d.getMonth()+1)+"月"+d.getDate()+"日（"+DOW[d.getDay()]+"）";
+  if(n===0) return s+"　今日";
+  if(n===1) return s+"　あした";
+  if(n===-1) return s+"　きのう";
+  return s;
+}
+function evNode(p){
+  var e=el("div","ev "+(KCLS[p.kind]||"k-etc"));
+  e.textContent=(hhmm(p.start_time)?hhmm(p.start_time)+" ":"")+p.title;
+  return e;
+}
+function planRow(p){
+  var r=el("button","prow");
+  var tm=el("div","tm");
+  tm.appendChild(el("div",null,hhmm(p.start_time)||"—"));
+  if(p.end_time) tm.appendChild(el("div","tm2","〜"+hhmm(p.end_time)));
+  r.appendChild(tm);
+  var b=el("div","body");
+  var t=el("div","tt");
+  t.appendChild(document.createTextNode(p.title));
+  t.appendChild(el("span","kchip "+(KCLS[p.kind]||"k-etc"),p.kind));
+  b.appendChild(t);
+  var sub=[];
+  if(p.place) sub.push(p.place);
+  var tr=tripOf(p.trip_id); if(tr) sub.push(tr.name);
+  if(p.note) sub.push(p.note);
+  if(sub.length) b.appendChild(el("div","pl",sub.join("　·　")));
+  r.appendChild(b);
+  r.onclick=function(){ openPlanSheet(p); };
+  return r;
+}
+function dueRow(t){
+  var r=el("button","prow");
+  var tm=el("div","tm"); tm.appendChild(el("div",null,"締切"));
+  r.appendChild(tm);
+  var b=el("div","body");
+  var tt=el("div","tt"); tt.textContent=t.title; b.appendChild(tt);
+  b.appendChild(el("div","pl",t.project));
+  r.appendChild(b);
+  r.onclick=function(){ openSheet(t); };
+  return r;
+}
+
+function renderPlan(L2){
+  var seg=el("div","seg"); seg.style.margin="18px 0 4px";
+  [["month","月のマス目"],["list","日付順"]].forEach(function(p){
+    var b=el("button",S.planMode===p[0]?"on":null,p[1]);
+    b.onclick=function(){
+      S.planMode=p[0];
+      try{ localStorage.setItem("mytask.planMode",p[0]); }catch(e){}
+      render(); window.scrollTo(0,0);
+    };
+    seg.appendChild(b);
+  });
+  L2.appendChild(seg);
+
+  if(S.planMode==="list") renderPlanList(L2); else renderMonth(L2);
+
+  var add=el("button","btn pri wide","＋ 予定を入れる");
+  add.style.marginTop="16px";
+  add.onclick=function(){ openPlanSheet(null); };
+  L2.appendChild(add);
+  var addt=el("button","btn wide","＋ 出張をつくる");
+  addt.style.marginTop="8px";
+  addt.onclick=function(){ openTripSheet(null); };
+  L2.appendChild(addt);
+}
+
+function shiftMonth(n){
+  var d=new Date(S.calY,S.calM-1+n,1);
+  S.calY=d.getFullYear(); S.calM=d.getMonth()+1; S.calPick=null; render();
+}
+
+function renderMonth(L2){
+  var bar=el("div","calbar");
+  var prev=el("button","btn","‹"); prev.title="前の月"; prev.onclick=function(){ shiftMonth(-1); };
+  var next=el("button","btn","›"); next.title="次の月"; next.onclick=function(){ shiftMonth(1); };
+  var now=el("button","btn","今月");
+  now.onclick=function(){ var d=new Date(); S.calY=d.getFullYear(); S.calM=d.getMonth()+1; S.calPick=ymd(today0()); render(); };
+  bar.appendChild(prev);
+  bar.appendChild(el("div","ym",S.calY+"年"+S.calM+"月"));
+  bar.appendChild(next);
+  now.style.marginLeft="auto"; bar.appendChild(now);
+  L2.appendChild(bar);
+
+  /* この月にかかっている出張。押せば中身を直せる */
+  var mS=ymd(new Date(S.calY,S.calM-1,1)), mE=ymd(new Date(S.calY,S.calM,0));
+  S.trips.filter(function(t){
+    if(!t.start_date||!t.end_date) return false;
+    return !(t.end_date<mS||t.start_date>mE);
+  }).forEach(function(t){ L2.appendChild(tripCard(t)); });
+
+  var g=el("div","cal");
+  DOW.split("").forEach(function(c,i){
+    g.appendChild(el("div","dow"+(i===0?" sun":i===6?" sat":""),c));
+  });
+  var first=new Date(S.calY,S.calM-1,1);
+  var offset=first.getDay();                       /* 日曜はじまり */
+  var dim=new Date(S.calY,S.calM,0).getDate();
+  var cells=Math.ceil((offset+dim)/7)*7;
+  var tstr=ymd(today0());
+  for(var i=0;i<cells;i++){
+    var d=new Date(S.calY,S.calM-1,1-offset+i);
+    var key=ymd(d);
+    var c=el("button","cell");
+    if(d.getMonth()!==S.calM-1) c.classList.add("out");
+    if(key===tstr) c.classList.add("today");
+    if(S.calPick===key) c.classList.add("on");
+    if(tripOn(key)) c.classList.add("trip");
+    c.appendChild(el("span","dnum",String(d.getDate())));
+    var ps=plansOn(key), ds=duesOn(key), n=0;
+    for(var j=0;j<ps.length&&n<3;j++,n++) c.appendChild(evNode(ps[j]));
+    for(var k=0;k<ds.length&&n<3;k++,n++) c.appendChild(el("div","ev due","締 "+ds[k].title));
+    var rest=ps.length+ds.length-n;
+    if(rest>0) c.appendChild(el("div","more","ほか "+rest));
+    (function(kk){ c.onclick=function(){ S.calPick=(S.calPick===kk?null:kk); render(); }; })(key);
+    g.appendChild(c);
+  }
+  L2.appendChild(g);
+
+  /* 押した日の中身を、時刻順に下へ出す */
+  if(S.calPick){
+    var ps2=plansOn(S.calPick), ds2=duesOn(S.calPick);
+    L2.appendChild(sec(dayLabel(S.calPick),ps2.length+ds2.length||null));
+    var tr=tripOn(S.calPick);
+    if(tr){
+      var tag=el("div","pl"); tag.style.margin="0 2px 8px";
+      tag.textContent="出張中："+tr.name;
+      L2.appendChild(tag);
+    }
+    ps2.forEach(function(p){ L2.appendChild(planRow(p)); });
+    ds2.forEach(function(t){ L2.appendChild(dueRow(t)); });
+    if(!ps2.length&&!ds2.length){
+      var e=el("div","pl"); e.style.margin="0 2px 8px";
+      e.textContent="この日はまだ何も入っていません。";
+      L2.appendChild(e);
+    }
+    var a=el("button","btn wide","この日に予定を入れる");
+    a.style.marginTop="4px";
+    a.onclick=function(){ openPlanSheet({date:S.calPick}); };
+    L2.appendChild(a);
+  }
+}
+
+function renderPlanList(L2){
+  var t0=ymd(today0());
+  var keys={};
+  planList().forEach(function(p){ if(S.planPast||p.date>=t0) keys[p.date]=1; });
+  S.tasks.forEach(function(t){
+    if(t.status!=="done"&&t.deadline&&(S.planPast||t.deadline>=t0)) keys[t.deadline]=1;
+  });
+  var days=Object.keys(keys).sort();
+  if(S.planPast) days.reverse();
+  if(!days.length){
+    var e=el("div","empty");
+    e.appendChild(el("div","big","これからの予定はありません"));
+    e.appendChild(el("p",null,"下の「予定を入れる」から足せます。飛行機とホテルをメールから入れるのは、この次の段です。"));
+    L2.appendChild(e);
+  }
+  days.forEach(function(key){
+    var ps=plansOn(key), ds=duesOn(key);
+    L2.appendChild(sec(dayLabel(key),ps.length+ds.length));
+    var tr=tripOn(key);
+    if(tr){
+      var tag=el("div","pl"); tag.style.margin="0 2px 8px";
+      tag.textContent="出張中："+tr.name;
+      L2.appendChild(tag);
+    }
+    ps.forEach(function(p){ L2.appendChild(planRow(p)); });
+    ds.forEach(function(t){ L2.appendChild(dueRow(t)); });
+  });
+  var sw=el("button","btn wide",S.planPast?"これからの予定だけ見る":"前の予定も見る");
+  sw.style.marginTop="10px";
+  sw.onclick=function(){ S.planPast=!S.planPast; render(); window.scrollTo(0,0); };
+  L2.appendChild(sw);
+}
+
+function tripCard(t){
+  var c=el("button","tripcard");
+  c.appendChild(el("div","tn",t.name));
+  var s=[];
+  if(t.start_date&&t.end_date){
+    var a=parseYmd(t.start_date), b=parseYmd(t.end_date);
+    var days=Math.round((b-a)/86400000)+1;
+    s.push((a.getMonth()+1)+"/"+a.getDate()+"（"+DOW[a.getDay()]+"）〜"
+          +(b.getMonth()+1)+"/"+b.getDate()+"（"+DOW[b.getDay()]+"）　"+days+"日間");
+  }
+  if(t.place) s.push(t.place);
+  s.push("予定 "+planList().filter(function(p){ return p.trip_id===t.id; }).length+"件");
+  c.appendChild(el("div","td",s.join("　·　")));
+  c.onclick=function(){ openTripSheet(t); };
+  return c;
+}
+
+/* ---------- 予定・出張の書き換え ---------- */
+function createPlan(b){ return api(P,{method:"POST",body:JSON.stringify(b)}).then(loadAll).then(render); }
+function patchPlan(id,b){ return api(P+"?id=eq."+id,{method:"PATCH",body:JSON.stringify(b)}).then(loadAll).then(render); }
+function removePlan(id){ return api(P+"?id=eq."+id,{method:"DELETE"}).then(loadAll).then(render); }
+function createTrip(b){ return api(TR,{method:"POST",body:JSON.stringify(b)}).then(loadAll).then(render); }
+function patchTrip(id,b){ return api(TR+"?id=eq."+id,{method:"PATCH",body:JSON.stringify(b)}).then(loadAll).then(render); }
+function removeTrip(id){ return api(TR+"?id=eq."+id,{method:"DELETE"}).then(loadAll).then(render); }
+
+function fldWrap(label,node,hint){
+  var w=el("div","fld");
+  w.appendChild(el("label",null,label));
+  w.appendChild(node);
+  if(hint) w.appendChild(el("div","hint",hint));
+  return w;
+}
+function inp(type,value){
+  var i=el("input"); if(type) i.type=type; i.value=value==null?"":value; return i;
+}
+
+function openPlanSheet(p){
+  var isNew=!p||!p.id;
+  var v={
+    kind:(p&&p.kind)||"その他",
+    area:(p&&p.area)||(S.area==="私用"?"私用":"仕事")
+  };
+  var body=$("sheetBody"); body.innerHTML="";
+  body.appendChild(sec(isNew?"予定を入れる":"予定"));
+
+  var ti=inp("text",p&&p.title); ti.placeholder="例：A店 現場確認";
+  body.appendChild(fldWrap("題名",ti));
+
+  var di=inp("date",(p&&p.date)||S.calPick||ymd(today0()));
+  body.appendChild(fldWrap("日付",di));
+
+  var si=inp("time",hhmm(p&&p.start_time)), ei=inp("time",hhmm(p&&p.end_time));
+  var two=el("div","two");
+  var w1=el("div"); w1.appendChild(el("label",null,"開始")); w1.appendChild(si);
+  var w2=el("div"); w2.appendChild(el("label",null,"終了")); w2.appendChild(ei);
+  two.appendChild(w1); two.appendChild(w2);
+  var tw=el("div","fld");
+  tw.appendChild(el("label",null,"時刻"));
+  tw.appendChild(two);
+  tw.appendChild(el("div","hint","空のままでも入ります。時刻なしは、その日の先頭に並びます。"));
+  body.appendChild(tw);
+
+  var kw=el("div","fld"); kw.appendChild(el("label",null,"種別"));
+  var ks=el("div","seg");
+  KINDS.forEach(function(k){
+    var b=el("button",v.kind===k?"on":null,k);
+    b.onclick=function(){
+      v.kind=k;
+      Array.prototype.forEach.call(ks.children,function(x){ x.classList.toggle("on",x.textContent===k); });
+    };
+    ks.appendChild(b);
+  });
+  kw.appendChild(ks); body.appendChild(kw);
+
+  var pi=inp("text",p&&p.place); pi.placeholder="例：ソウル・江南の店舗";
+  body.appendChild(fldWrap("場所",pi));
+
+  var ts=el("select");
+  var o0=el("option",null,"（出張に紐づけない）"); o0.value=""; ts.appendChild(o0);
+  S.trips.forEach(function(t){
+    var o=el("option",null,t.name); o.value=t.id;
+    if(p&&p.trip_id===t.id) o.selected=true;
+    ts.appendChild(o);
+  });
+  body.appendChild(fldWrap("出張",ts,"出張に紐づけた予定は、あとで録音と写真を区切る物差しになります。"));
+
+  var aw=el("div","fld"); aw.appendChild(el("label",null,"仕事 / 私用"));
+  var as=el("div","seg");
+  ["仕事","私用"].forEach(function(x){
+    var b=el("button",v.area===x?"on":null,x);
+    b.onclick=function(){
+      v.area=x;
+      Array.prototype.forEach.call(as.children,function(y){ y.classList.toggle("on",y.textContent===x); });
+    };
+    as.appendChild(b);
+  });
+  aw.appendChild(as); body.appendChild(aw);
+
+  var ni=el("textarea"); ni.rows=2; ni.value=(p&&p.note)||"";
+  body.appendChild(fldWrap("メモ",ni));
+
+  var row=el("div","btnrow"); row.style.margin="22px 0 6px";
+  var save=el("button","btn pri",isNew?"入れる":"保存する");
+  save.onclick=function(){
+    var title=ti.value.trim();
+    if(!title){ toast("題名を入れてください。"); return; }
+    if(!di.value){ toast("日付を入れてください。"); return; }
+    var b={ title:title, date:di.value,
+            start_time:si.value||null, end_time:ei.value||null,
+            place:pi.value.trim()||null, kind:v.kind, note:ni.value.trim()||null,
+            trip_id:ts.value||null, area:v.area };
+    var d=parseYmd(b.date);
+    if(d){ S.calY=d.getFullYear(); S.calM=d.getMonth()+1; S.calPick=b.date; }
+    (isNew?createPlan(b):patchPlan(p.id,b));
+    closeSheet();
+    toast(isNew?"予定を入れました":"保存しました");
+  };
+  row.appendChild(save);
+  body.appendChild(row);
+
+  if(!isNew){
+    var del=el("button","btn wide","この予定を削除");
+    del.style.marginTop="12px"; del.style.color="var(--dye-1)";
+    del.onclick=function(){ if(confirm("削除します。よろしいですか。")){ removePlan(p.id); closeSheet(); } };
+    body.appendChild(del);
+  }
+  showSheet();
+}
+
+function openTripSheet(t){
+  var isNew=!t||!t.id;
+  var body=$("sheetBody"); body.innerHTML="";
+  body.appendChild(sec(isNew?"出張をつくる":"出張"));
+
+  var ni=inp("text",t&&t.name); ni.placeholder="例：10月 タイ・シンガポール出張";
+  body.appendChild(fldWrap("名前",ni));
+  var pi=inp("text",t&&t.place); pi.placeholder="例：バンコク／シンガポール";
+  body.appendChild(fldWrap("行き先",pi));
+
+  var s1=inp("date",t&&t.start_date), s2=inp("date",t&&t.end_date);
+  var two=el("div","two");
+  var w1=el("div"); w1.appendChild(el("label",null,"出発")); w1.appendChild(s1);
+  var w2=el("div"); w2.appendChild(el("label",null,"帰着")); w2.appendChild(s2);
+  two.appendChild(w1); two.appendChild(w2);
+  var dw=el("div","fld"); dw.appendChild(el("label",null,"期間")); dw.appendChild(two);
+  dw.appendChild(el("div","hint","期間を入れると、その日のマス目に色が付きます。"));
+  body.appendChild(dw);
+
+  var me=el("textarea"); me.rows=2; me.value=(t&&t.note)||"";
+  body.appendChild(fldWrap("メモ",me));
+
+  var row=el("div","btnrow"); row.style.margin="22px 0 6px";
+  var save=el("button","btn pri",isNew?"つくる":"保存する");
+  save.onclick=function(){
+    var name=ni.value.trim();
+    if(!name){ toast("名前を入れてください。"); return; }
+    var b={ name:name, place:pi.value.trim()||null,
+            start_date:s1.value||null, end_date:s2.value||null,
+            note:me.value.trim()||null };
+    if(b.start_date){
+      var d=parseYmd(b.start_date);
+      if(d){ S.calY=d.getFullYear(); S.calM=d.getMonth()+1; }
+    }
+    (isNew?createTrip(b):patchTrip(t.id,b));
+    closeSheet();
+    toast(isNew?"出張をつくりました":"保存しました");
+  };
+  row.appendChild(save);
+  body.appendChild(row);
+
+  if(!isNew){
+    var del=el("button","btn wide","この出張を削除");
+    del.style.marginTop="12px"; del.style.color="var(--dye-1)";
+    del.onclick=function(){
+      if(confirm("出張を削除します。ぶら下がっている予定は消えず、紐づけだけ外れます。よろしいですか。")){
+        removeTrip(t.id); closeSheet();
+      }
+    };
+    body.appendChild(del);
+  }
+  showSheet();
+}
+
 /* ---------- 起動 ---------- */
 function showMain(){
   $("loginView").classList.add("hide");
@@ -1420,6 +1903,10 @@ Array.prototype.forEach.call(document.querySelectorAll(".areasw button"),functio
 try{
   var savedArea=localStorage.getItem("mytask.area");
   if(savedArea==="仕事"||savedArea==="私用"||savedArea==="all") S.area=savedArea;
+}catch(e){}
+try{
+  var savedPM=localStorage.getItem("mytask.planMode");
+  if(savedPM==="month"||savedPM==="list") S.planMode=savedPM;
 }catch(e){}
 $("scrim").onclick=closeSheet;
 $("quickgo").onclick=function(){
