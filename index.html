@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="タスク">
 <meta name="theme-color" content="#0E1A22">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>タスク</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2179,6 +2182,20 @@ $("quickgo").onclick=function(){
   toast(ar==="私用"?"受信箱に追加しました（私用）":"受信箱に追加しました");
 };
 $("quick").onkeydown=function(e){ if(e.key==="Enter") $("quickgo").click(); };
+
+/* ホーム画面に入れたときに、ブラウザとは別のアプリとして開けるようにする。
+   file:// で開いたときは登録できないので、黙って見送る。 */
+if("serviceWorker" in navigator){
+  window.addEventListener("load",function(){
+    try{ navigator.serviceWorker.register("sw.js"); }catch(e){}
+  });
+}
+
+/* ホーム画面のアイコンを長押しして選ぶ入口（?go=plan / ?go=today） */
+(function(){
+  var m=/[?&]go=(plan|today|waiting|all|map)/.exec(location.search);
+  if(m){ S.tab=m[1]; try{ history.replaceState(null,"",location.pathname+location.hash); }catch(e){} }
+})();
 
 startChibi();
 window.addEventListener("resize",syncHeadHeight);
