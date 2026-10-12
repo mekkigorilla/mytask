@@ -673,6 +673,18 @@ header{
 .drev.error{color:var(--ink-3)}
 .dev.k-review .dk{color:var(--dye-2)}
 .dev.k-applied .dk,.dev.k-undone .dk{color:var(--dye-2)}
+/* 報告の Markdown（太字・コード・箇条書き）。.db は pre-wrap なので、箇条書きの前後に改行を足さない */
+.dmc{font-family:var(--font-mono);font-size:.92em;background:var(--sunk);border:1px solid var(--rule-soft);border-radius:4px;padding:0 4px}
+.dmul{margin:2px 0 4px;padding-left:1.3em;white-space:normal}
+.dmul li{white-space:pre-wrap;margin:1px 0}
+.dmp{display:block}
+.dcard .drep .dmp{display:inline}
+/* チボビを窓口のカードに重ねない（10/12 実機で「報告あり」に重なった）。
+   窓口タブでは、狭い画面（スマホ）は出さない／広い画面は下の余白に下ろしてカードより奥を歩かせる。他のタブはこれまでどおり */
+body.on-desk #pet{bottom:calc(6px + env(safe-area-inset-bottom))}
+body.on-desk .deskcards{padding-bottom:56px}
+body.on-desk .dcard{z-index:11}
+@media (max-width:999px){ body.on-desk #pet{display:none} }
 /* 狭い画面でタブの字が1文字ずつ折れていた（窓口を足す前の5つでも 390px で折れていた）。
    タブは折らずに詰める。仕事／私用の切り替えが入らない幅では、切り替えだけ上の行の右端へ回す（隠さない） */
 .tabs > button{white-space:nowrap;flex:none}
@@ -1105,6 +1117,7 @@ function render(){
   if(S.tab==="desk")    renderDesk(L2);
   /* 窓口タブでは下の追加欄を隠す（受信箱の追加欄と依頼の入力欄が2つ並ぶと迷う） */
   $("addbar").classList.toggle("hide",S.tab==="desk");
+  document.body.classList.toggle("on-desk",S.tab==="desk");   /* チボビをカードに重ねない（CSS 側） */
   deskPoll(S.tab==="desk");
 
   var i=0;
@@ -2138,9 +2151,14 @@ function openTripSheet(t){
    設計：My info/02 - プロジェクト/自作窓口_叩き台.md／計画：docs/desk_milestone1_plan.md の Task 6 */
 var DC="/rest/v1/desk_case", DE="/rest/v1/desk_event", DW="/rest/v1/desk_worker", DRPC="/rest/v1/rpc/";
 var DESK_STALE_SEC=120, DESK_POLL_MS=5000, DESK_WORKER="home-pc";
+/* ［🔍 検証も］は押したまま残す（10/12 実機で、送るたびに外れて押し直しになっていた）。この端末だけに覚える。
+   ［⏱ 長い仕事］は費用がかかるので1回ごと（送ったら外れる） */
+var DESK_VERIFY_KEY="mytask.desk.verify";
+function deskVerifyLoad(){ try{ return localStorage.getItem(DESK_VERIFY_KEY)==="1"; }catch(e){ return false; } }
+function deskVerifySave(on){ try{ localStorage.setItem(DESK_VERIFY_KEY,on?"1":"0"); }catch(e){} }
 S.desk={cases:[], workers:[], reply:null /*返事先の案件*/, draft:"", sending:false, timer:null, sheetCase:null,
         loaded:false, nReported:0, pending:null /*送れたか分からない依頼 {id,text,caseId}*/,
-        opt:{long:false, verify:false} /*第2段：次に送る依頼の印*/, props:{} /*案件ID→最新の提案*/,
+        opt:{long:false, verify:deskVerifyLoad()} /*第2段：次に送る依頼の印（検証はずっと・長い仕事は1回ごと）*/, props:{} /*案件ID→最新の提案*/,
         reviews:{} /*案件ID→最新の検証*/, busy:{} /*押している最中の提案ID*/};
 var DP="/rest/v1/desk_proposal";
 var DESK_ST={queued:["🕒","受付（PC待ち）"], running:["🟡","作業中"], reported:["🟢","報告あり"], heard:["✅","聞いた"],
@@ -2207,7 +2225,7 @@ function deskSubmit(text){
     .then(deskJson)
     .then(function(){
       S.desk.pending=null; S.desk.reply=null; drawDeskTo();
-      S.desk.opt={long:false,verify:false}; drawDeskOpt();
+      S.desk.opt.long=false; drawDeskOpt();   /* 検証は残す */
       toast("受け付けました");
       return deskRefresh();
     })
@@ -2310,12 +2328,54 @@ function deskReviewLine(c){
 function drawDeskOpt(){
   var box=$("deskOpt"); if(!box) return;
   box.textContent="";
-  [["long","⏱ 長い仕事"],["verify","🔍 検証も"]].forEach(function(k){
-    var x=el("button",S.desk.opt[k[0]]?"on":null,k[1]);
-    x.setAttribute("aria-pressed",S.desk.opt[k[0]]?"true":"false");
-    x.onclick=function(){ S.desk.opt[k[0]]=!S.desk.opt[k[0]]; drawDeskOpt(); };
+  [["long","⏱ 長い仕事","次の1回だけ（送ると外れます）"],["verify","🔍 検証も","押すたびにオン／オフ。オンのあいだは毎回 Codex が確かめます"]].forEach(function(k){
+    var on=!!S.desk.opt[k[0]];
+    var x=el("button",on?"on":null,k[0]==="verify"?k[1]+(on?"：オン":"：オフ"):k[1]);
+    x.setAttribute("aria-pressed",on?"true":"false");
+    x.title=k[2];
+    x.onclick=function(){
+      S.desk.opt[k[0]]=!S.desk.opt[k[0]];
+      if(k[0]==="verify") deskVerifySave(S.desk.opt.verify);
+      drawDeskOpt();
+    };
     box.appendChild(x);
   });
+}
+/* 報告の Markdown を少しだけ見やすくする（10/12 実機で **2** がそのまま出ていた）。
+   太字・`コード`・箇条書き・見出し（太字の行にする）・改行だけ。HTML としては読まない：
+   全部 el()／createTextNode で組む（文中の <img onerror> などは字のまま）。
+   compact=カード用（箇条書きは「・」の行にして、3行で切る表示を崩さない） */
+function deskMdInline(parent,text){
+  String(text).split(/(\*\*[^*\n]+?\*\*|`[^`\n]+`)/).forEach(function(t){
+    if(!t) return;
+    if(t.length>4&&t.slice(0,2)==="**"&&t.slice(-2)==="**") parent.appendChild(el("strong",null,t.slice(2,-2)));
+    else if(t.length>2&&t.charAt(0)==="`"&&t.charAt(t.length-1)==="`") parent.appendChild(el("code","dmc",t.slice(1,-1)));
+    else parent.appendChild(document.createTextNode(t));
+  });
+}
+function deskMd(parent,text,compact){
+  var lines=String(text==null?"":text).replace(/\r\n?/g,"\n").split("\n");
+  var para=null, ul=null;
+  lines.forEach(function(line){
+    var mb=/^\s*[-*•・]\s+(.*)$/.exec(line), mh=/^\s*#{1,6}\s+(.*)$/.exec(line);
+    if(mb&&!compact){
+      if(!ul){ ul=el("ul","dmul"); parent.appendChild(ul); para=null; }
+      deskMdInline(ul.appendChild(el("li")),mb[1]);
+      return;
+    }
+    ul=null;
+    if(!para){ para=el("span","dmp"); parent.appendChild(para); }
+    else para.appendChild(document.createTextNode("\n"));
+    if(mb){ para.appendChild(document.createTextNode("・")); deskMdInline(para,mb[1]); }
+    else if(mh){ var b=el("strong"); deskMdInline(b,mh[1]); para.appendChild(b); }
+    else deskMdInline(para,line);
+  });
+  return parent;
+}
+/* 読み上げ用：記号を読ませない */
+function deskMdPlain(text){
+  return String(text||"").replace(/\*\*([^*\n]+?)\*\*/g,"$1").replace(/`([^`\n]+)`/g,"$1")
+    .replace(/^\s*#{1,6}\s+/gm,"").replace(/^\s*[-*•]\s+/gm,"・");
 }
 /* 読み上げ：押したときだけ鳴る。窓を閉じたら止める。無い端末ではボタンを出さない */
 function deskCanSpeak(){ return !!(window.speechSynthesis&&window.SpeechSynthesisUtterance); }
@@ -2459,7 +2519,7 @@ function drawDeskCards(){
     top.appendChild(el("span","dtm num",fmtDT(c.last_report_at||c.updated_at)));
     d.appendChild(top);
     d.appendChild(el("div","dttl",c.title));
-    if(c.last_report) d.appendChild(el("div","drep",c.last_report));
+    if(c.last_report) d.appendChild(deskMd(el("div","drep"),c.last_report,true));
     var rvl=deskReviewLine(c); if(rvl) d.appendChild(rvl);
     var pbx=deskPropBox(c); if(pbx) d.appendChild(pbx);
     var bx=el("div","dbtns");
@@ -2483,7 +2543,7 @@ function openDeskSheet(c){
     var sp=el("button","btn","🔊 読む"); sp.id="deskSpeak";
     sp.onclick=function(){
       if(S.desk.speaking){ deskSpeakStop(); sp.textContent="🔊 読む"; }
-      else{ deskSpeak(c.last_report); sp.textContent="■ 止める"; }
+      else{ deskSpeak(deskMdPlain(c.last_report)); sp.textContent="■ 止める"; }
     };
     bx.appendChild(sp);
   }
@@ -2513,7 +2573,7 @@ function deskLoadEvents(caseId){
           if(info.length) h.appendChild(el("span","num",info.join("・")));
         }
         r.appendChild(h);
-        if(e.body) r.appendChild(el("div","db",e.body));
+        if(e.body) r.appendChild(e.kind==="report"?deskMd(el("div","db"),e.body,false):el("div","db",e.body));
         box.appendChild(r);
       });
       if(!rows||!rows.length) box.appendChild(el("p","note","経過はまだありません。"));
