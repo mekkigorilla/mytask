@@ -658,6 +658,21 @@ header{
 .dev.k-progress .db{color:var(--ink-3);font-size:12.5px}
 .dev.k-error .dk,.dev.k-expired .dk{color:#c0392b}
 .dev.k-report .dk{color:#2f9e5a}
+/* 第2段：長い仕事・検証の切り替え、提案の枠、検証の段、読み上げ */
+.deskopt{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.deskopt button{font-size:12px;padding:5px 10px;border:1px solid var(--rule);border-radius:999px;color:var(--ink-3);background:var(--card)}
+.deskopt button.on{border-color:var(--dye-2);color:var(--dye-2);font-weight:700;background:var(--sunk)}
+.dprop{margin-top:9px;border:1px solid var(--rule);border-radius:8px;padding:8px 10px;background:var(--sunk);cursor:default}
+.dprop .ph{font-size:11.5px;font-weight:700;color:var(--ink-2);margin-bottom:4px}
+.dprop .pl{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;padding:2px 0}
+.dprop .pn{font-size:12px;color:var(--ink-3);margin-top:4px;overflow-wrap:anywhere}
+.dprop .dbtns{margin-top:7px}
+.dprop.applied{background:transparent}
+.drev{margin-top:7px;font-size:12.5px;color:var(--ink-2);overflow-wrap:anywhere}
+.drev.warn{color:#b9770e;font-weight:700}
+.drev.error{color:var(--ink-3)}
+.dev.k-review .dk{color:var(--dye-2)}
+.dev.k-applied .dk,.dev.k-undone .dk{color:var(--dye-2)}
 /* 狭い画面でタブの字が1文字ずつ折れていた（窓口を足す前の5つでも 390px で折れていた）。
    タブは折らずに詰める。仕事／私用の切り替えが入らない幅では、切り替えだけ上の行の右端へ回す（隠さない） */
 .tabs > button{white-space:nowrap;flex:none}
@@ -2124,11 +2139,15 @@ function openTripSheet(t){
 var DC="/rest/v1/desk_case", DE="/rest/v1/desk_event", DW="/rest/v1/desk_worker", DRPC="/rest/v1/rpc/";
 var DESK_STALE_SEC=120, DESK_POLL_MS=5000, DESK_WORKER="home-pc";
 S.desk={cases:[], workers:[], reply:null /*返事先の案件*/, draft:"", sending:false, timer:null, sheetCase:null,
-        loaded:false, nReported:0, pending:null /*送れたか分からない依頼 {id,text,caseId}*/};
+        loaded:false, nReported:0, pending:null /*送れたか分からない依頼 {id,text,caseId}*/,
+        opt:{long:false, verify:false} /*第2段：次に送る依頼の印*/, props:{} /*案件ID→最新の提案*/,
+        reviews:{} /*案件ID→最新の検証*/, busy:{} /*押している最中の提案ID*/};
+var DP="/rest/v1/desk_proposal";
 var DESK_ST={queued:["🕒","受付（PC待ち）"], running:["🟡","作業中"], reported:["🟢","報告あり"], heard:["✅","聞いた"],
              later:["⏸","あとで"], failed:["❌","失敗"], expired:["⌛","期限切れ"]};
 var DESK_ORDER={reported:0, running:1, queued:1, failed:2, expired:2, later:3, heard:4};
-var DESK_KIND={request:"依頼", claimed:"受取", progress:"途中", report:"報告", error:"失敗", expired:"期限切れ", system:"知らせ"};
+var DESK_KIND={request:"依頼", claimed:"受取", progress:"途中", report:"報告", error:"失敗", expired:"期限切れ", system:"知らせ",
+               review:"検証", proposal:"提案", applied:"反映", undone:"戻した"};
 
 /* 400以上は本文が空でも失敗として扱う（task.py の 2026-08-22 の事故と同じ穴を作らない） */
 function deskJson(r){
@@ -2153,10 +2172,18 @@ function deskCaseById(id){ for(var i=0;i<S.desk.cases.length;i++) if(S.desk.case
 function deskLoad(){
   return Promise.all([
     api(DC+"?select=*&order=updated_at.desc&limit=50").then(deskJson),
-    api(DW+"?select=*").then(deskJson)
+    api(DW+"?select=*").then(deskJson),
+    api(DP+"?select=id,case_id,status,summary,ops,result,created_at,decided_at&status=in.(proposed,unresolved,applied)&order=created_at.desc&limit=50")
+      .then(deskJson).catch(function(){ return []; }),
+    api(DE+"?select=case_id,body,created_at&kind=eq.review&order=created_at.desc&limit=50")
+      .then(deskJson).catch(function(){ return []; })
   ]).then(function(a){
     S.desk.cases=Array.isArray(a[0])?a[0]:[];
     S.desk.workers=Array.isArray(a[1])?a[1]:[];
+    var pr={}, rv={};
+    (Array.isArray(a[2])?a[2]:[]).forEach(function(p){ if(!pr[p.case_id]) pr[p.case_id]=p; });
+    (Array.isArray(a[3])?a[3]:[]).forEach(function(r){ if(!rv[r.case_id]) rv[r.case_id]=r; });
+    S.desk.props=pr; S.desk.reviews=rv;
     S.desk.loaded=true;
     S.desk.nReported=S.desk.cases.filter(function(c){ return c.ai_state==="reported"; }).length;
     if($("n_desk")) $("n_desk").textContent=S.desk.nReported||"";
@@ -2174,11 +2201,13 @@ function deskSubmit(text){
   var id=(p&&p.text===text&&p.caseId===cid)?p.id:deskUuid();
   S.desk.pending={id:id,text:text,caseId:cid};
   S.desk.sending=true; drawDeskSend();
-  return api(DRPC+"desk_submit",{method:"POST",
-      body:JSON.stringify({p_request_id:id,p_case_id:cid,p_body:text,p_title:null})})
+  var opt={}; if(S.desk.opt.long) opt.long=true; if(S.desk.opt.verify) opt.verify=true;
+  return api(DRPC+"desk_submit2",{method:"POST",
+      body:JSON.stringify({p_request_id:id,p_case_id:cid,p_body:text,p_title:null,p_options:opt})})
     .then(deskJson)
     .then(function(){
       S.desk.pending=null; S.desk.reply=null; drawDeskTo();
+      S.desk.opt={long:false,verify:false}; drawDeskOpt();
       toast("受け付けました");
       return deskRefresh();
     })
@@ -2218,6 +2247,94 @@ function deskStop(on){
     })
     .catch(function(e){ toast("変えられませんでした（"+e.message+"）"); });
 }
+/* 第2段：提案（［タスクに反映］）。書くのはデータベースの関数（許可表を通った項目だけ・本人の権限）。
+   2回押しても関数が受け流す。押している間はボタンを効かなくする */
+function deskPropCall(p,fn,okMsg){
+  if(S.desk.busy[p.id]) return Promise.resolve();
+  S.desk.busy[p.id]=true; drawDeskCards();
+  return api(DRPC+fn,{method:"POST",body:JSON.stringify({p_id:p.id})})
+    .then(deskJson)
+    .then(function(r){
+      var msg=(typeof r==="string"&&r)?r.split("\n")[0]:okMsg;
+      toast(fn==="desk_apply_proposal"?"反映しました："+msg:msg);
+      if(fn!=="desk_reject_proposal"&&typeof loadAll==="function") loadAll();
+    })
+    .catch(function(e){ toast("できませんでした（"+e.message+"）"); })
+    .then(function(){ delete S.desk.busy[p.id]; return deskRefresh(); });
+}
+function deskApply(p){ return deskPropCall(p,"desk_apply_proposal","反映しました"); }
+function deskReject(p){ return deskPropCall(p,"desk_reject_proposal","この提案は使いません"); }
+function deskUndo(p){ return deskPropCall(p,"desk_undo_proposal","元に戻しました"); }
+/* 提案・検証は「いまの報告」のものだけ出す。提案は報告の直前（数秒前）に、検証は報告のあとに置かれる */
+function deskIsCurrent(c,iso,before){
+  if(!c.last_report_at||!iso) return true;
+  var d=new Date(iso).getTime()-new Date(c.last_report_at).getTime();
+  return before?(d<=5000&&d>=-5*60*1000):(d>=-5000);
+}
+function deskPropBox(c){
+  var p=S.desk.props[c.id]; if(!p||!deskIsCurrent(c,p.created_at,true)) return null;
+  var box=el("div","dprop"+(p.status==="applied"?" applied":""));
+  box.onclick=function(ev){ ev.stopPropagation(); };
+  var old=(Date.now()-new Date(p.created_at).getTime())>24*3600*1000;
+  box.appendChild(el("div","ph",p.status==="applied"?"mytask に反映しました（"+deskHM(p.decided_at||p.created_at)+"）":"mytask に書くこと（押すまで書きません）"));
+  String(p.status==="applied"&&p.result?p.result:(p.summary||"")).split("\n").forEach(function(line){
+    if(line) box.appendChild(el("div","pl",line));
+  });
+  var bx=el("div","dbtns");
+  function b(label,fn,pri){
+    var x=el("button","btn"+(pri?" pri":""),label);
+    x.disabled=!!S.desk.busy[p.id];
+    x.onclick=function(ev){ ev.stopPropagation(); fn(p); };
+    bx.appendChild(x);
+  }
+  if(p.status==="proposed"&&!old){ b("タスクに反映",deskApply,true); b("いらない",deskReject); }
+  else if(p.status==="proposed"&&old){ box.appendChild(el("div","pn","提案から24時間を過ぎたので反映できません。もう一度頼んでください")); b("いらない",deskReject); }
+  else if(p.status==="unresolved"){
+    var cand=[];
+    (Array.isArray(p.ops)?p.ops:[]).forEach(function(o){ (o.task_candidates||[]).forEach(function(t){ if(cand.indexOf(t)<0) cand.push(t); }); });
+    box.appendChild(el("div","pn","どのタスクか決められないので反映できません"+(cand.length?"（候補："+cand.join("／")+"）":"")+"。題名をそのまま書いて頼み直してください"));
+    b("いらない",deskReject);
+  }else if(p.status==="applied"){ b("元に戻す",deskUndo); }
+  if(bx.childNodes.length) box.appendChild(bx);
+  return box;
+}
+function deskReviewLine(c){
+  var r=S.desk.reviews[c.id]; if(!r||!r.body||!deskIsCurrent(c,r.created_at,false)) return null;
+  var lines=String(r.body).split("\n"), head=lines[0]||"", why=(lines[1]||"").trim();
+  var cls="drev", txt;
+  if(head.indexOf("要注意")>=0){ cls+=" warn"; txt="⚠ 検証：要注意"+(why?" — "+why:""); }
+  else if(head.indexOf("問題なし")>=0){ txt="🔍 検証：問題なし"+(why?" — "+why:""); }
+  else{ cls+=" error"; txt="🔍 検証できませんでした"+(why?" — "+why:""); }
+  return el("div",cls,txt);
+}
+function drawDeskOpt(){
+  var box=$("deskOpt"); if(!box) return;
+  box.textContent="";
+  [["long","⏱ 長い仕事"],["verify","🔍 検証も"]].forEach(function(k){
+    var x=el("button",S.desk.opt[k[0]]?"on":null,k[1]);
+    x.setAttribute("aria-pressed",S.desk.opt[k[0]]?"true":"false");
+    x.onclick=function(){ S.desk.opt[k[0]]=!S.desk.opt[k[0]]; drawDeskOpt(); };
+    box.appendChild(x);
+  });
+}
+/* 読み上げ：押したときだけ鳴る。窓を閉じたら止める。無い端末ではボタンを出さない */
+function deskCanSpeak(){ return !!(window.speechSynthesis&&window.SpeechSynthesisUtterance); }
+function deskSpeak(text){
+  if(!deskCanSpeak()) return;
+  try{
+    speechSynthesis.cancel();
+    var u=new SpeechSynthesisUtterance(String(text||"").slice(0,4000));
+    u.lang="ja-JP";
+    u.onend=u.onerror=function(){ S.desk.speaking=false; var b=$("deskSpeak"); if(b) b.textContent="🔊 読む"; };
+    S.desk.speaking=true;
+    speechSynthesis.speak(u);
+  }catch(e){ S.desk.speaking=false; }
+}
+function deskSpeakStop(){
+  if(!deskCanSpeak()) return;
+  try{ speechSynthesis.cancel(); }catch(e){}
+  S.desk.speaking=false;
+}
 function deskReplyTo(c){
   S.desk.reply=c?c.id:null; drawDeskTo();
   closeSheet();
@@ -2245,11 +2362,12 @@ function renderDesk(L2){
   inp.onkeydown=function(e){ if(e.key==="Enter"&&!e.isComposing){ e.preventDefault(); send(); } };
   go.onclick=send;
   row.appendChild(inp); row.appendChild(go); left.appendChild(row);
+  var opt=el("div","deskopt"); opt.id="deskOpt"; left.appendChild(opt);
   left.appendChild(el("p","note","Claude は読むだけです（ファイルを書く・消す・送ることはしません）。返事は5秒おきに読み直します。"));
   var cards=el("div","deskcards"); cards.id="deskCards"; right.appendChild(cards);
   w.appendChild(left); w.appendChild(right);
   L2.appendChild(w);
-  drawDeskTo(); drawDeskSend(); drawDeskPc(); drawDeskCards();
+  drawDeskTo(); drawDeskSend(); drawDeskOpt(); drawDeskPc(); drawDeskCards();
   if(!S.desk.loaded) deskRefresh();
 }
 function drawDeskSend(){ var g=$("deskGo"); if(g) g.disabled=!!S.desk.sending; }
@@ -2342,6 +2460,8 @@ function drawDeskCards(){
     d.appendChild(top);
     d.appendChild(el("div","dttl",c.title));
     if(c.last_report) d.appendChild(el("div","drep",c.last_report));
+    var rvl=deskReviewLine(c); if(rvl) d.appendChild(rvl);
+    var pbx=deskPropBox(c); if(pbx) d.appendChild(pbx);
     var bx=el("div","dbtns");
     deskButtons(c,bx);
     if(c.task_id){
@@ -2358,7 +2478,17 @@ function openDeskSheet(c){
   S.desk.sheetCase=c.id;
   body.appendChild(el("div","sec")).appendChild(el("span","t",deskStateLabel(c)));
   body.appendChild(el("h2",null,c.title));
-  var bx=el("div","btnrow"); deskButtons(c,bx,true); if(bx.childNodes.length) body.appendChild(bx);
+  var bx=el("div","btnrow"); deskButtons(c,bx,true);
+  if(deskCanSpeak()&&c.last_report){
+    var sp=el("button","btn","🔊 読む"); sp.id="deskSpeak";
+    sp.onclick=function(){
+      if(S.desk.speaking){ deskSpeakStop(); sp.textContent="🔊 読む"; }
+      else{ deskSpeak(c.last_report); sp.textContent="■ 止める"; }
+    };
+    bx.appendChild(sp);
+  }
+  if(bx.childNodes.length) body.appendChild(bx);
+  var pb=deskPropBox(c); if(pb) body.appendChild(pb);
   var ev=el("div","devs"); ev.id="deskEv"; ev.appendChild(el("p","note","経過を読み込み中…"));
   body.appendChild(ev);
   showSheet();
@@ -2404,6 +2534,10 @@ function deskPoll(on){
 document.addEventListener("visibilitychange",function(){
   if(!document.hidden&&S.tab==="desk"&&$("deskCards")) deskRefresh();
 });
+(function(){
+  var orig=closeSheet;
+  closeSheet=function(){ deskSpeakStop(); return orig.apply(this,arguments); };
+})();
 /* ==== 窓口ここまで ==== */
 
 /* ---------- パソコンの横長画面：左の案件一覧 ----------
