@@ -2364,6 +2364,7 @@ function deskMd(parent,text,compact){
       return;
     }
     ul=null;
+    if(compact&&!line.trim()) return;   /* カードは3行しか出さないので空行で1行使わない */
     if(!para){ para=el("span","dmp"); parent.appendChild(para); }
     else para.appendChild(document.createTextNode("\n"));
     if(mb){ para.appendChild(document.createTextNode("・")); deskMdInline(para,mb[1]); }
