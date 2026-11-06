@@ -84,6 +84,10 @@ header{
 .stat.click:hover{background:var(--sunk)}
 .stat.click:hover .k{color:var(--ink-2)}
 
+.vbtn{align-self:center;font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;
+  border:1px solid var(--ink-3);background:transparent;color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.vbtn.on{border-color:var(--dye-2);color:var(--dye-2);font-weight:700}
+.vbtn.wait{border-style:dashed}
 .tabs{display:flex;gap:26px}
 .tabs button{
   padding:0 0 11px;font-size:13.5px;font-weight:500;color:var(--ink-3);
@@ -757,6 +761,7 @@ body.on-desk .dcard{z-index:11}
         </svg>
         <span class="brand">TASK</span>
         <span class="today" id="today"></span>
+        <button class="vbtn" id="voiceBtn" type="button" aria-pressed="false" title="返事をこのスマホで読み上げる">🔇 読み上げ</button>
       </div>
       <div class="flow" id="flow"></div>
       <div class="tabs">
@@ -2925,8 +2930,91 @@ function startChibi(){
   setTimeout(tick,1800);
 }
 
+/* ---------- 返事の読み上げ（2026-11-07） ----------
+   自宅PCの Stop フック（voice-reply\phone_voice.py）が voice_reply に文と「まお」の声を入れる。
+   ［読み上げ］がオンのあいだ4秒おきに新しい行を取りに行き、届いた順に流す。声が無ければスマホの声で文を読む。
+   オンにした時点より前の行は読まない。画面を消すと Android が止めるので、オンの間は画面を消さない（Wake Lock）。
+   スマホのブラウザは「押した」あとでないと音を出せないので、開き直したら一度押してもらう。 */
+var VOICE_KEY="mytask_voice_on";
+var V={on:false,last:null,queue:[],playing:false,timer:null,lock:null,audio:null};
+function voiceDraw(){
+  var b=$("voiceBtn"); if(!b) return;
+  var want=false; try{ want=localStorage.getItem(VOICE_KEY)==="1"; }catch(e){}
+  b.classList.toggle("on",V.on);
+  b.classList.toggle("wait",!V.on&&want);
+  b.setAttribute("aria-pressed",V.on?"true":"false");
+  b.textContent=V.on?"🔊 読み上げ中":(want?"🔈 押して再開":"🔇 読み上げ");
+}
+function voiceLock(){
+  if(!V.on||!navigator.wakeLock) return;
+  navigator.wakeLock.request("screen").then(function(l){ V.lock=l; }).catch(function(){});
+}
+function voiceStart(){
+  V.on=true; try{ localStorage.setItem(VOICE_KEY,"1"); }catch(e){}
+  /* 押した瞬間に無音を1回鳴らして、このあと自動で流せるようにする */
+  V.audio=V.audio||new Audio();
+  try{ V.audio.src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="; V.audio.play().catch(function(){}); }catch(e){}
+  if(window.speechSynthesis){ try{ speechSynthesis.speak(new SpeechSynthesisUtterance("")); }catch(e){} }
+  voiceLock(); voiceDraw();
+  /* いちばん新しい行の番号だけ覚える（前の返事は読まない） */
+  api("/rest/v1/voice_reply?select=id&order=id.desc&limit=1").then(function(r){ return r.ok?r.json():[]; })
+    .then(function(a){ V.last=(a&&a[0])?a[0].id:0; voicePoll(); })
+    .catch(function(){ V.last=0; voicePoll(); });
+}
+function voiceStop(){
+  V.on=false; try{ localStorage.setItem(VOICE_KEY,"0"); }catch(e){}
+  clearTimeout(V.timer); V.queue=[]; V.playing=false;
+  try{ if(V.audio) V.audio.pause(); }catch(e){}
+  try{ if(window.speechSynthesis) speechSynthesis.cancel(); }catch(e){}
+  try{ if(V.lock) V.lock.release(); }catch(e){} V.lock=null;
+  voiceDraw();
+}
+function voicePoll(){
+  clearTimeout(V.timer);
+  if(!V.on||V.last===null) return;
+  api("/rest/v1/voice_reply?select=id,speech,audio_b64,audio_mime&id=gt."+V.last+"&order=id.asc&limit=10")
+    .then(function(r){ return r.ok?r.json():[]; })
+    .then(function(rows){
+      (rows||[]).forEach(function(x){ V.last=Math.max(V.last,x.id); V.queue.push(x); });
+      voiceNext();
+    })
+    .catch(function(){})
+    .then(function(){ if(V.on) V.timer=setTimeout(voicePoll,4000); });
+}
+function voiceNext(){
+  if(!V.on||V.playing||!V.queue.length) return;
+  var x=V.queue.shift(); V.playing=true;
+  function done(){ V.playing=false; voiceNext(); }
+  function byPhone(){
+    if(!window.speechSynthesis||!window.SpeechSynthesisUtterance) return done();
+    try{
+      var u=new SpeechSynthesisUtterance(String(x.speech||"").slice(0,4000));
+      u.lang="ja-JP"; u.rate=1.1; u.onend=u.onerror=done;
+      speechSynthesis.speak(u);
+    }catch(e){ done(); }
+  }
+  if(!x.audio_b64) return byPhone();
+  try{
+    V.audio=V.audio||new Audio();
+    V.audio.onended=done;
+    V.audio.onerror=byPhone;
+    V.audio.src="data:"+(x.audio_mime||"audio/ogg")+";base64,"+x.audio_b64;
+    V.audio.play().catch(byPhone);
+  }catch(e){ byPhone(); }
+}
+function voiceInit(){
+  var b=$("voiceBtn"); if(!b||b.dataset.init) return;
+  b.dataset.init="1";
+  b.onclick=function(){ V.on?voiceStop():voiceStart(); };
+  document.addEventListener("visibilitychange",function(){
+    if(document.visibilityState==="visible"&&V.on){ voiceLock(); voicePoll(); }
+  });
+  voiceDraw();
+}
+
 /* ---------- 起動 ---------- */
 function showMain(){
+  voiceInit();
   $("loginView").classList.add("hide");
   $("mainView").classList.remove("hide");
   $("addbar").classList.remove("hide");
