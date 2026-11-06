@@ -2437,6 +2437,8 @@ function deskAutoRead(){
     var a=deskCaseById(S.desk.awaiting);
     if(!a||a.ai_state!=="reported"||cur[a.id]===undefined) S.desk.awaiting=null;
   }
+  /* ［読み上げ］がオンの間は、自宅PCの worker が「まお」の声で届ける（voice_reply）。スマホの声では読まない */
+  if(V.on){ S.desk.speakQ=[]; S.desk.awaiting=null; return; }
   if(!S.desk.autoread||!deskCanSpeak()||S.desk.speaking||!S.desk.speakQ.length) return;
   if(S.desk.awaiting){
     if(!S.desk.moreSaid){ S.desk.moreSaid=true; deskSpeak("もう1件、報告があります。"); }
@@ -2523,6 +2525,7 @@ function renderDesk(L2){
     if(S.desk.sending) return;
     var v=inp.value.trim(); if(!v) return;
     inp.value=""; S.desk.draft="";   /* 押したらその場で空ける。次をすぐ打てる */
+    if(!V.on) voiceStart();   /* 2026-11-07 送ったら、返事は［読み上げ］を押さなくても「まお」の声で流す */
     deskSubmit(v);
   }
   inp.oninput=function(){ S.desk.draft=inp.value; };
@@ -2530,21 +2533,56 @@ function renderDesk(L2){
   go.onclick=send;
   row.appendChild(inp);
   var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(SR){   /* 第3段：🎤 押したときだけ聞く。確定した文を欄に足すだけで、送るのは本人 */
+  if(SR){
+    /* 🎤（2026-11-07 松尾さん：1秒だまると切れて使いづらい。PC と同じにしてほしい）
+       押すと聞き続ける。だまっても切らない（Android が切ったら聞き直す）。
+       最後に「以上」「以上です」「送信」と言って1秒だまったら、合言葉を取って送る。続けて話したら送らない。
+       もう一度押すと止まる（それまでの文は欄に残る）。2分なにも言わなければ止まる */
     var mic=el("button","btn mic","🎤"); mic.id="deskMic"; mic.setAttribute("aria-label","声で入れる");
-    mic.title="ブラウザの音声認識（Chrome・Brave では音声が Google に送られます）。もう一度押すと止まります";
-    var rec=null;
+    mic.title="押して話し、最後に「以上」か「送信」と言うと送ります（Chrome・Brave では音声が Google に送られます）。もう一度押すと止まります";
+    var KW=/[\s、。,.]*(以上です|以上|送信)[\s、。,.!！]*$/;
+    var M={on:false,rec:null,base:"",fin:"",timer:null,idle:null};
+    function micShow(t){ inp.value=(M.base?M.base+" ":"")+M.fin+(t||""); S.desk.draft=inp.value; }
+    function micEnd(){
+      M.on=false; clearTimeout(M.timer); clearTimeout(M.idle);
+      if(M.rec){ var r=M.rec; M.rec=null; try{ r.abort(); }catch(e){} }
+      mic.classList.remove("on"); mic.textContent="🎤";
+    }
+    function micIdle(){ clearTimeout(M.idle); M.idle=setTimeout(function(){ if(M.on){ micEnd(); toast("声が無いので止めました"); } },120000); }
+    function micListen(){
+      if(!M.on) return;
+      var r;
+      try{ r=new SR(); }catch(e){ micEnd(); toast("声を聞けませんでした"); return; }
+      M.rec=r; r.lang="ja-JP"; r.continuous=true; r.interimResults=true; r.maxAlternatives=1;
+      r.onresult=function(ev){
+        if(M.rec!==r) return;
+        var tmp="";
+        for(var i=ev.resultIndex;i<ev.results.length;i++){
+          var t=ev.results[i][0].transcript;
+          if(ev.results[i].isFinal) M.fin+=t; else tmp+=t;
+        }
+        clearTimeout(M.timer); micIdle();
+        micShow(tmp);
+        if(!tmp&&KW.test(M.fin)){
+          M.timer=setTimeout(function(){
+            if(!M.on) return;
+            M.fin=M.fin.replace(KW,""); micShow("");
+            micEnd(); send();
+          },1000);
+        }
+      };
+      r.onerror=function(ev){
+        if(ev&&(ev.error==="not-allowed"||ev.error==="service-not-allowed")){ micEnd(); toast("マイクが使えません（許可を確かめてください）"); }
+      };
+      r.onend=function(){ if(M.rec===r){ M.rec=null; if(M.on) setTimeout(micListen,150); } };
+      try{ r.start(); }catch(e){ M.rec=null; setTimeout(micListen,500); }
+    }
     mic.onclick=function(){
-      if(rec){ try{ rec.stop(); }catch(e){} return; }
-      try{
-        rec=new SR(); rec.lang="ja-JP"; rec.interimResults=false; rec.maxAlternatives=1;
-        rec.onresult=function(ev){
-          var t=""; for(var i=ev.resultIndex;i<ev.results.length;i++){ if(ev.results[i].isFinal) t+=ev.results[i][0].transcript; }
-          if(t){ inp.value=(inp.value?inp.value+" ":"")+t; S.desk.draft=inp.value; }
-        };
-        rec.onend=rec.onerror=function(){ rec=null; mic.classList.remove("on"); mic.textContent="🎤"; };
-        rec.start(); mic.classList.add("on"); mic.textContent="●";
-      }catch(e){ rec=null; toast("声を聞けませんでした"); }
+      if(M.on){ micEnd(); return; }
+      if(typeof voiceStart==="function"&&!V.on) voiceStart();   /* 押したついでに、返事の声も流せるようにする */
+      M.on=true; M.base=inp.value.trim(); M.fin="";
+      mic.classList.add("on"); mic.textContent="●";
+      micIdle(); micListen();
     };
     row.appendChild(mic);
   }
