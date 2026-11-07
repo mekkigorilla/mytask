@@ -2923,7 +2923,7 @@ function renderDesk(L2){
   ir.inp.value=S.desk.draft||"";
   left.appendChild(ir.row);
   var opt=el("div","deskopt"); opt.id="deskOpt"; left.appendChild(opt);
-  left.appendChild(el("p","note","担当は Obsidian のメモと Projects のファイルを書き、git で公開できます（承認なし・書いたものは報告に出ます）。メールは Gmail で下書き・送信ができます（「送って」と言ったときだけ送る）。ファイルを消す・支払う・パスワードに触ることはしません。カードは窓の［🗑 消す］か、総合窓口に「8番を消して」で消せます。返事は5秒おきに読み直します。"));
+  left.appendChild(el("p","note","担当は Obsidian と Projects のファイルを書いて git で公開、Gmail（「送って」と言ったときだけ送る）、Google カレンダーと Drive、タスクと予定の書き換え（その場で反映・カードの［元に戻す］で戻せる）ができます。画面の操作・プログラム・会社のもの・消す・支払うはできません。できないことは総合窓口が「やってほしいこと」のメモに残します。カードは窓の［🗑 消す］か「8番を消して」で消せます。返事は5秒おきに読み直します。"));
   var cards=el("div","deskcards"); cards.id="deskCards"; right.appendChild(cards);
   w.appendChild(left); w.appendChild(right);
   L2.appendChild(w);
