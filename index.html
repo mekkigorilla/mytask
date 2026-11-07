@@ -2765,15 +2765,20 @@ function micListen(){
       },1000);
     }
   };
+  r.onstart=function(){ if(typeof vlog==="function") vlog("mic start"); };
   r.onerror=function(ev){
+    if(typeof vlog==="function") vlog("mic error "+(ev&&ev.error));
     if(ev&&(ev.error==="not-allowed"||ev.error==="service-not-allowed")){ micEnd(); talkOff(); toast("マイクが使えません（許可を確かめてください）"); }
   };
   r.onend=function(){
+    if(typeof vlog==="function") vlog("mic end"+(MIC.rec!==r?"（古い）":""));
     if(MIC.rec!==r) return;
     MIC.rec=null; MIC.fin+=MIC.tmp; MIC.tmp="";   /* この聞き取りの文を確定して、聞き直す */
     if(MIC.on&&!MIC.paused) setTimeout(micListen,150);
   };
-  try{ r.start(); }catch(e){ MIC.rec=null; setTimeout(micListen,500); }
+  r.onaudiostart=function(){ if(typeof vlog==="function") vlog("mic audio"); };
+  r.onspeechstart=function(){ if(typeof vlog==="function") vlog("mic speech"); };
+  try{ r.start(); if(typeof vlog==="function") vlog("mic call start"); }catch(e){ if(typeof vlog==="function") vlog("mic start失敗 "+e.name); MIC.rec=null; setTimeout(micListen,500); }
 }
 function micStart(o,talk){
   if(!deskSR()) return;
