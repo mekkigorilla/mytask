@@ -2911,7 +2911,7 @@ function renderDesk(L2){
   ir.inp.value=S.desk.draft||"";
   left.appendChild(ir.row);
   var opt=el("div","deskopt"); opt.id="deskOpt"; left.appendChild(opt);
-  left.appendChild(el("p","note","担当は Obsidian のメモと Projects のファイルを書き、git で公開できます（承認なし・書いたものは報告に出ます）。消す・支払う・パスワードに触ることはしません。メールはまだ送れません。返事は5秒おきに読み直します。"));
+  left.appendChild(el("p","note","担当は Obsidian のメモと Projects のファイルを書き、git で公開できます（承認なし・書いたものは報告に出ます）。メールは Gmail で下書き・送信ができます（「送って」と言ったときだけ送る）。ファイルを消す・支払う・パスワードに触ることはしません。カードは窓の［🗑 消す］か、総合窓口に「8番を消して」で消せます。返事は5秒おきに読み直します。"));
   var cards=el("div","deskcards"); cards.id="deskCards"; right.appendChild(cards);
   w.appendChild(left); w.appendChild(right);
   L2.appendChild(w);
@@ -3004,6 +3004,20 @@ function deskLinkCall(c,fn,args,okMsg){
 function deskLinkTask(c,taskId){
   return deskLinkCall(c,"desk_link_task",{p_case_id:c.id,p_task_id:taskId||null},
     function(r){ return taskId?"タスク「"+r+"」に付けました":"タスクから外しました"; });
+}
+function deskDeleteCase(c){
+  var name=(c.no!=null?c.no+"番 ":"")+(c.title||"このカード");
+  if(!confirm(name+" を消します。依頼と経過も消え、戻せません。よろしいですか。")) return Promise.resolve();
+  return api(DRPC+"desk_delete_case",{method:"POST",body:JSON.stringify({p_case_id:c.id})})
+    .then(deskJson)
+    .then(function(r){
+      if(r==="deleted"){ toast(name+" を消しました"); closeSheet(); S.desk.sheetCase=null; if(S.desk.reply===c.id) S.desk.reply=null; }
+      else if(r==="busy") toast("作業中なので消せません。終わってからもう一度押してください");
+      else if(r==="not_found"){ toast("もう消えています"); closeSheet(); }
+      else toast("消せませんでした（"+r+"）");
+    })
+    .catch(function(e){ toast("消せませんでした（"+e.message+"）"); })
+    .then(function(){ return deskRefresh(); });
 }
 function deskCaseToTask(c){
   return deskLinkCall(c,"desk_case_to_task",{p_case_id:c.id},"受信箱にタスクを足して付けました");
@@ -3167,6 +3181,11 @@ function openDeskSheet(c,isNext){
   body.appendChild(cr.row);
   var ev=el("div","devs"); ev.id="deskEv"; ev.appendChild(el("p","note","経過を読み込み中…"));
   body.appendChild(ev);
+  /* 2026-11-07 カードを消す（依頼・経過・提案も一緒に消える。作業中は消えない） */
+  var del=el("button","btn wide","🗑 このカードを消す"); del.id="deskDel";
+  del.style.marginTop="12px"; del.style.color="var(--dye-1)";
+  del.onclick=function(ev2){ ev2.stopPropagation(); deskDeleteCase(c); };
+  body.appendChild(del);
   showSheet();
   deskLoadEvents(c.id);
 }
