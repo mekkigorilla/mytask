@@ -2695,6 +2695,21 @@ var DESK_KW=/[\s、。,.]*(以上です|以上|送信)[\s、。,.!！]*$/;
 function deskSR(){ return window.SpeechRecognition||window.webkitSpeechRecognition; }
 var MIC={on:false,rec:null,base:"",fin:"",tmp:"",timer:null,idle:null,o:null,paused:false,talk:false,heard:false};
 function micBusy(){ return MIC.on&&!MIC.paused&&!!(MIC.fin||MIC.tmp); }
+/* 1回の聞き取りの結果の一覧 → 文。
+   PC の Chrome は区切りごとに別の結果を返す（つなげる）。Android の Chrome・Brave は、毎回「それまでの全文」を
+   新しい結果として足してくる（2026-11-07 Fold7 で実測：[会話の試験です][会話の試験です][会話の試験です 今ある…]）。
+   つなげると重なるので、後の結果が前の結果で始まっていたら全文型とみなし、いちばん長いものを使う */
+function srText(results){
+  var parts=[], cum=false, prev="", best="";
+  for(var i=0;i<results.length;i++){
+    var t=results[i][0].transcript||"", s=t.trim();
+    if(!s) continue;
+    if(prev&&s.indexOf(prev)===0) cum=true;
+    parts.push(t); prev=s;
+    if(s.length>=best.length) best=s;
+  }
+  return cum?best:parts.join("");
+}
 function micShow(){
   var t=(MIC.base?MIC.base+" ":"")+MIC.fin+MIC.tmp;
   if(MIC.o.inp){ MIC.o.inp.value=t; deskGrow(MIC.o.inp); }
@@ -2729,20 +2744,19 @@ function micListen(){
   var r;
   try{ r=new (deskSR())(); }catch(e){ micEnd(); toast("声を聞けませんでした"); return; }
   MIC.rec=r; r.lang="ja-JP"; r.continuous=true; r.interimResults=true; r.maxAlternatives=1;
+  /* MIC.fin＝前の聞き取り（Android が切って聞き直す前）までの文、MIC.tmp＝いまの聞き取りの文。
+     いまの聞き取りの文は、届くたびに結果の一覧の全体から作り直す（srText） */
   r.onresult=function(ev){
     if(MIC.rec!==r) return;
-    var tmp="";
-    for(var i=ev.resultIndex;i<ev.results.length;i++){
-      var t=ev.results[i][0].transcript;
-      if(ev.results[i].isFinal) MIC.fin+=t; else tmp+=t;
-    }
-    MIC.tmp=tmp; if(MIC.fin||tmp) MIC.heard=true;
+    var last=ev.results[ev.results.length-1];
+    MIC.tmp=srText(ev.results);
+    if(MIC.fin||MIC.tmp) MIC.heard=true;
     clearTimeout(MIC.timer); micIdle();
     micShow();
-    if(!tmp&&DESK_KW.test(MIC.fin)){
+    if(last&&last.isFinal&&DESK_KW.test(MIC.fin+MIC.tmp)){
       MIC.timer=setTimeout(function(){
         if(!MIC.on) return;
-        MIC.fin=MIC.fin.replace(DESK_KW,""); MIC.tmp="";
+        MIC.fin=(MIC.fin+MIC.tmp).replace(DESK_KW,""); MIC.tmp="";
         var text=((MIC.base?MIC.base+" ":"")+MIC.fin).trim(), o=MIC.o, talk=MIC.talk;
         if(o.inp){ o.inp.value=""; deskGrow(o.inp); }
         micEnd();
@@ -2754,7 +2768,11 @@ function micListen(){
   r.onerror=function(ev){
     if(ev&&(ev.error==="not-allowed"||ev.error==="service-not-allowed")){ micEnd(); talkOff(); toast("マイクが使えません（許可を確かめてください）"); }
   };
-  r.onend=function(){ if(MIC.rec===r){ MIC.rec=null; if(MIC.on&&!MIC.paused) setTimeout(micListen,150); } };
+  r.onend=function(){
+    if(MIC.rec!==r) return;
+    MIC.rec=null; MIC.fin+=MIC.tmp; MIC.tmp="";   /* この聞き取りの文を確定して、聞き直す */
+    if(MIC.on&&!MIC.paused) setTimeout(micListen,150);
+  };
   try{ r.start(); }catch(e){ MIC.rec=null; setTimeout(micListen,500); }
 }
 function micStart(o,talk){
@@ -2789,6 +2807,7 @@ function talkOff(){
   talkDraw();
 }
 function talkSent(){
+  if(typeof vlog==="function") vlog("sent talk="+TALK.on);
   if(!TALK.on) return;
   TALK.wait=true; clearTimeout(TALK.timer);
   TALK.timer=setTimeout(function(){ if(TALK.on&&TALK.wait){ talkOff(); toast("返事が来ないので、会話を止めました"); } },300000);
@@ -2797,6 +2816,7 @@ function talkSent(){
 /* 読み上げの係が「この案件の声を流し終えた（ほかに待っている声も無い）」と知らせてくる */
 function talkReplyPlayed(caseId){
   var want=TALK.scope==="general"?S.desk.gid:TALK.scope;
+  if(typeof vlog==="function") vlog("played "+(caseId||"-")+" talk="+TALK.on+" wait="+TALK.wait+" want="+want);
   if(TALK.on&&TALK.wait&&caseId&&caseId===want){
     TALK.wait=false; clearTimeout(TALK.timer);
     micStart(TALK.o,true);
@@ -3318,8 +3338,12 @@ function voiceNext(){
   if(typeof micBusy==="function"&&micBusy()){ clearTimeout(V.defer); V.defer=setTimeout(voiceNext,1000); return; }
   var x=V.queue.shift(), fin=false; V.playing=true; V.cur=x;
   if(typeof micPause==="function") micPause();
+  var guard=null;
+  vlog("play "+x.id+" "+(x.case_id||"-")+(x.audio_b64?" 声":" 文"));
   function done(){
-    if(fin||V.cur!==x) return; fin=true;
+    clearTimeout(guard);
+    if(fin||V.cur!==x){ vlog("done skip "+x.id); return; } fin=true;
+    vlog("done "+x.id+" 残り"+V.queue.length);
     V.playing=false; V.cur=null;
     if(!V.queue.length){
       if(typeof micResume==="function") micResume();
@@ -3340,10 +3364,22 @@ function voiceNext(){
     V.audio=V.audio||new Audio();
     V.audio.onended=done;
     V.audio.onerror=byPhone;
+    /* 保険：終わりの合図が来なくても、声の長さ＋2秒で終わったことにする（会話モードが止まったままにならないように） */
+    V.audio.onloadedmetadata=function(){
+      var d=V.audio.duration; clearTimeout(guard);
+      guard=setTimeout(function(){ vlog("guard "+x.id); done(); },((isFinite(d)&&d>0)?d:60)*1000+2000);
+    };
     V.audio.src="data:"+(x.audio_mime||"audio/ogg")+";base64,"+x.audio_b64;
-    V.audio.play().catch(byPhone);
+    V.audio.play().catch(function(e){ vlog("play失敗 "+(e&&e.name)); byPhone(); });
   }catch(e){ byPhone(); }
 }
+/* 点検用の記録（読むだけ）。window.__deskDbg() で中の状態を返す。書き換える手段は出さない */
+function vlog(s){ V.log=V.log||[]; V.log.push(new Date().toTimeString().slice(0,8)+" "+s); if(V.log.length>60) V.log.shift(); }
+window.__deskDbg=function(){
+  return JSON.parse(JSON.stringify({v:{on:V.on,last:V.last,playing:V.playing,queue:V.queue.length,log:V.log||[]},
+    talk:{on:TALK.on,scope:TALK.scope,wait:TALK.wait},mic:{on:MIC.on,paused:MIC.paused,talk:MIC.talk,fin:MIC.fin,tmp:MIC.tmp},
+    gid:S.desk.gid}));
+};
 /* いま流している声を途中で切る（次の声は待たせたまま） */
 function voiceCut(){
   try{ if(V.audio) V.audio.pause(); }catch(e){}
