@@ -770,9 +770,20 @@ body.on-desk .dcard{z-index:11}
   padding:8px 10px;font-size:14px;margin:6px 0;outline:none}
 .dpick .pi{display:block;width:100%;text-align:left;padding:8px;border-bottom:1px solid var(--rule-soft);font-size:13px;overflow-wrap:anywhere}
 .dpick .pi .pp{color:var(--ink-3);font-size:11.5px;margin-left:6px}
+/* 2026-11-07 松尾さん：Fold7 を開いた画面（約750px）でも PC と同じく左にチャット・右にカード。
+   窓口タブでは左の案件の一覧（.side）は要らないので消し、チャットとカードを広げる */
+@media (min-width:700px){
+  .desk{display:grid;grid-template-columns:minmax(300px,46%) minmax(0,1fr);gap:18px;align-items:start}
+  .desk .deskL{position:sticky;top:calc(var(--hh,156px) + 12px);margin-bottom:0}
+  .desk .deskchat{height:calc(100vh - var(--hh,156px) - 260px);min-height:300px}
+}
 @media (min-width:1000px){
-  .desk{display:grid;grid-template-columns:360px minmax(0,1fr);gap:24px;align-items:start}
-  .desk .deskL{position:sticky;top:calc(var(--hh,156px) + 18px);margin-bottom:0}
+  body.on-desk .cols{grid-template-columns:minmax(0,1fr)}
+  body.on-desk .side{display:none}
+  .desk{grid-template-columns:minmax(360px,44%) minmax(0,1fr);gap:24px}
+}
+@media (min-width:1200px){
+  body.on-desk .deskcards{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;align-content:start}
 }
 </style>
 </head>
@@ -1905,13 +1916,22 @@ function dueRow(t){
   return r;
 }
 
+/* 2026-11-07 松尾さん：Fold7 を閉じた縦長では日付順、開いた画面・PC では月のマス目。
+   手で切り替えたら、その幅（狭い／広い）のときだけ覚える */
+function planNarrow(){ return window.innerWidth<600; }
+function planModeNow(){
+  var k=planNarrow()?"narrow":"wide", v=null;
+  try{ v=localStorage.getItem("mytask.planMode."+k); }catch(e){}
+  return (v==="month"||v==="list")?v:(k==="narrow"?"list":"month");
+}
 function renderPlan(L2){
+  S.planMode=planModeNow();
   var seg=el("div","seg"); seg.style.margin="18px 0 4px";
   [["month","月のマス目"],["list","日付順"]].forEach(function(p){
     var b=el("button",S.planMode===p[0]?"on":null,p[1]);
     b.onclick=function(){
       S.planMode=p[0];
-      try{ localStorage.setItem("mytask.planMode",p[0]); }catch(e){}
+      try{ localStorage.setItem("mytask.planMode."+(planNarrow()?"narrow":"wide"),p[0]); }catch(e){}
       render(); window.scrollTo(0,0);
     };
     seg.appendChild(b);
@@ -3534,8 +3554,7 @@ try{
   if(savedArea==="仕事"||savedArea==="私用"||savedArea==="all") S.area=savedArea;
 }catch(e){}
 try{
-  var savedPM=localStorage.getItem("mytask.planMode");
-  if(savedPM==="month"||savedPM==="list") S.planMode=savedPM;
+  /* 予定の見せ方は幅で決める（planModeNow）。古い1つだけの記憶は使わない */
 }catch(e){}
 $("scrim").onclick=closeSheet;
 $("sheetX").onclick=closeSheet;
@@ -3566,6 +3585,9 @@ if("serviceWorker" in navigator){
 
 startChibi();
 window.addEventListener("resize",syncHeadHeight);
+/* 開く・閉じるで幅が変わったら、予定タブの見せ方を描き直す */
+(function(){ var was=planNarrow();
+  window.addEventListener("resize",function(){ var n=planNarrow(); if(n!==was){ was=n; if(S.tab==="plan") render(); } }); })();
 
 (function boot(){
   loadSess();
