@@ -2891,7 +2891,7 @@ function renderDesk(L2){
   var left=el("div","deskL"), right=el("div","deskR");
   var hd=el("div","deskhead"); hd.appendChild(deskFace("boss",38));
   var ht=el("div"); ht.appendChild(el("div","dhn","総合窓口"));
-  ht.appendChild(el("div","dhs","マネージャーのチボビが聞いて、担当に振り分けます（PC の Claude・読むだけ）"));
+  ht.appendChild(el("div","dhs","マネージャーのチボビが聞いて、担当に振り分けます（PC の Claude・同時に2本まで）"));
   hd.appendChild(ht); left.appendChild(hd);
   var pc=el("div","deskpc"); pc.id="deskPc"; left.appendChild(pc);
   var use=el("div","deskuse"); use.id="deskUse"; left.appendChild(use);
@@ -2911,7 +2911,7 @@ function renderDesk(L2){
   ir.inp.value=S.desk.draft||"";
   left.appendChild(ir.row);
   var opt=el("div","deskopt"); opt.id="deskOpt"; left.appendChild(opt);
-  left.appendChild(el("p","note","Claude は読むだけです（ファイルを書く・消す・送ることはしません）。返事は5秒おきに読み直します。"));
+  left.appendChild(el("p","note","担当は Obsidian のメモと Projects のファイルを書き、git で公開できます（承認なし・書いたものは報告に出ます）。消す・支払う・パスワードに触ることはしません。メールはまだ送れません。返事は5秒おきに読み直します。"));
   var cards=el("div","deskcards"); cards.id="deskCards"; right.appendChild(cards);
   w.appendChild(left); w.appendChild(right);
   L2.appendChild(w);
