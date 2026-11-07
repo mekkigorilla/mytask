@@ -2698,17 +2698,19 @@ function micBusy(){ return MIC.on&&!MIC.paused&&!!(MIC.fin||MIC.tmp); }
 /* 1回の聞き取りの結果の一覧 → 文。
    PC の Chrome は区切りごとに別の結果を返す（つなげる）。Android の Chrome・Brave は、毎回「それまでの全文」を
    新しい結果として足してくる（2026-11-07 Fold7 で実測：[会話の試験です][会話の試験です][会話の試験です 今ある…]）。
-   つなげると重なるので、後の結果が前の結果で始まっていたら全文型とみなし、いちばん長いものを使う */
+   つなげると重なるので、話のかたまりごとにまとめる：前のかたまりで始まる結果は置き換え（伸びた）、
+   前のかたまりの頭と同じ結果は捨てる（縮んだ）、どちらでもなければ新しいかたまりとして後ろにつなぐ */
 function srText(results){
-  var parts=[], cum=false, prev="", best="";
+  var groups=[];
   for(var i=0;i<results.length;i++){
-    var t=results[i][0].transcript||"", s=t.trim();
+    var s=(results[i][0].transcript||"").trim();
     if(!s) continue;
-    if(prev&&s.indexOf(prev)===0) cum=true;
-    parts.push(t); prev=s;
-    if(s.length>=best.length) best=s;
+    var g=groups.length?groups[groups.length-1]:null;
+    if(g!==null&&s.indexOf(g)===0) groups[groups.length-1]=s;
+    else if(g!==null&&g.indexOf(s)===0) continue;
+    else groups.push(s);
   }
-  return cum?best:parts.join("");
+  return groups.join(" ");
 }
 function micShow(){
   var t=(MIC.base?MIC.base+" ":"")+MIC.fin+MIC.tmp;
@@ -2774,7 +2776,7 @@ function micListen(){
     if(typeof vlog==="function") vlog("mic end"+(MIC.rec!==r?"（古い）":""));
     if(MIC.rec!==r) return;
     MIC.rec=null; MIC.fin+=MIC.tmp; MIC.tmp="";   /* この聞き取りの文を確定して、聞き直す */
-    if(MIC.on&&!MIC.paused) setTimeout(micListen,150);
+    if(MIC.on&&!MIC.paused) setTimeout(micListen,30);   /* すぐ聞き直す（間に話した分を落とさない） */
   };
   r.onaudiostart=function(){ if(typeof vlog==="function") vlog("mic audio"); };
   r.onspeechstart=function(){ if(typeof vlog==="function") vlog("mic speech"); };
