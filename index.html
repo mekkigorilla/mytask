@@ -2395,7 +2395,11 @@ function deskPropCall(p,fn,okMsg){
       if(fn!=="desk_reject_proposal"&&typeof loadAll==="function") loadAll();
     })
     .catch(function(e){ toast("できませんでした（"+e.message+"）"); })
-    .then(function(){ delete S.desk.busy[p.id]; return deskRefresh(); });
+    .then(function(){ delete S.desk.busy[p.id]; return deskRefresh(); })
+    .then(function(){   /* 開いている窓も描き直す（11/7 実機：反映したのに窓は［タスクに反映］のままで［元に戻す］が出なかった） */
+      var c2=deskCaseById(p.case_id);
+      if(c2&&S.desk.sheetCase===p.case_id&&$("sheet").classList.contains("on")) openDeskSheet(c2);
+    });
 }
 function deskApply(p){ return deskPropCall(p,"desk_apply_proposal","反映しました"); }
 function deskReject(p){ return deskPropCall(p,"desk_reject_proposal","この提案は使いません"); }
