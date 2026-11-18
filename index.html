@@ -732,6 +732,13 @@ body.on-desk .dcard{z-index:11}
 .deskin textarea:focus{border-color:var(--dye-2);background:var(--card)}
 .deskin{align-items:flex-end}
 .deskin > button{min-height:44px}
+.deskin .deskcam{flex:none;padding:0 10px;font-size:16px}
+.deskatt{display:flex;gap:6px;flex-wrap:wrap}
+.deskatt:not(:empty){margin-bottom:6px}
+.attchip{position:relative;display:inline-block;width:56px;height:56px;border-radius:8px;overflow:hidden;border:1px solid var(--rule);background:var(--sunk)}
+.attchip img{width:100%;height:100%;object-fit:cover;display:block}
+.attchip.up{opacity:.5}
+.attchip .attx{position:absolute;top:0;right:0;width:22px;height:22px;padding:0;border:0;border-radius:0 0 0 8px;background:rgba(0,0,0,.6);color:#fff;font-size:14px;line-height:22px}
 .deskin .talkbtn{flex:none;padding:0 10px;font-size:13px;white-space:nowrap}
 .deskin .talkbtn.on{background:var(--dye-2);border-color:var(--dye-2);color:#fff}
 .dreply.deskin{flex-wrap:wrap}
@@ -2355,13 +2362,14 @@ function deskRefresh(){
   }).catch(function(e){ if($("deskPc")) drawDeskPc(e); });
 }
 
-function deskSubmit(text,toCase){
+function deskSubmit(text,toCase,imgs){
   var cid=toCase||S.desk.reply||null, p=S.desk.pending;
   /* 前に「送れたか分からない」で終わった同じ文なら、同じIDで送り直す＝二重にならない */
   var id=(p&&p.text===text&&p.caseId===cid)?p.id:deskUuid();
   S.desk.pending={id:id,text:text,caseId:cid};
   S.desk.sending=true; drawDeskSend();
   var opt={}; ["long","verify","oppose","factcheck"].forEach(function(k){ if(S.desk.opt[k]) opt[k]=true; });
+  if(imgs&&imgs.length) opt.images=imgs.slice(0,4);   /* 2026-11-18 写真の添付（desk-attach の置き場所） */
   return api(DRPC+"desk_submit2",{method:"POST",
       body:JSON.stringify({p_request_id:id,p_case_id:cid,p_body:text,p_title:null,p_options:opt})})
     .then(deskJson)
@@ -2846,6 +2854,7 @@ function talkStart(o,scope){
   if(!deskSR()){ toast("この端末では声で入れられません"); return; }
   TALK.on=true; TALK.scope=scope; TALK.o=o; TALK.wait=false;
   if(!V.on) voiceStart();
+  talkKeepAwake();   /* 会話中は画面を点けたままにする（自動で消えて止まらないように） */
   talkDraw();
   deskCue("rec",function(){ if(TALK.on&&TALK.o===o) micStart(o,true); });   /* 話す番の合図 */
 }
@@ -2880,8 +2889,46 @@ function talkDraw(){
     b.setAttribute("aria-pressed",on?"true":"false");
   });
 }
+/* 2026-11-18 松尾さん：ポケットに入れると黙って止まり、独り言になる。
+   ブラウザは画面が消える・裏に回ると聞き取りを止めるので、止まるのは避けられない。そこで
+   ①会話中は画面を点けたままにする（Wake Lock。画面の自動消灯で止まらない）
+   ②止まるときは「会話を止めます」と声と振動で知らせる（裏に回った直後なので鳴らない端末もある）
+   ③30分以内に画面に戻ったら、「録音します」の合図を鳴らして同じ会話の聞き取りを再開する */
+var TALK_RESUME=null, DESK_PICKING=0;
+function talkKeepAwake(){
+  if(!TALK.on||!V.on||!navigator.wakeLock) return;
+  if(V.lock&&!V.lock.released) return;
+  navigator.wakeLock.request("screen").then(function(l){ V.lock=l; if(typeof vlog==="function") vlog("wakelock on"); })
+    .catch(function(e){ if(typeof vlog==="function") vlog("wakelock 失敗 "+(e&&e.name)); });
+}
+function talkSay(s){
+  try{ if(navigator.vibrate) navigator.vibrate([200,100,200]); }catch(e){}
+  try{
+    if(!window.speechSynthesis||!window.SpeechSynthesisUtterance) return;
+    var u=new SpeechSynthesisUtterance(s);   /* cancel しない（読み上げ中の返事を切らない） */ u.lang="ja-JP"; u.rate=1.1;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
 document.addEventListener("visibilitychange",function(){
-  if(document.visibilityState==="hidden"){ talkOff(); if(MIC.on) micEnd(); }   /* アプリを閉じたら会話も終わり */
+  if(document.visibilityState==="hidden"){
+    if(TALK.on){
+      TALK_RESUME={o:TALK.o,scope:TALK.scope,at:Date.now()};
+      if(typeof vlog==="function") vlog("hidden: talk stop");
+      talkOff(); if(MIC.on) micEnd();
+      /* 📷 で写真を撮る・選ぶ間は裏に回るだけなので、黙って待つ（戻ったら同じく再開） */
+      if(!(DESK_PICKING&&Date.now()-DESK_PICKING<10*60*1000)) talkSay("画面が消えたので、会話を止めます。画面を点けると続けます。");
+    } else if(MIC.on) micEnd();
+    return;
+  }
+  /* 画面に戻った */
+  DESK_PICKING=0;
+  var r=TALK_RESUME; TALK_RESUME=null;
+  if(!r||TALK.on) return;
+  if(Date.now()-r.at>30*60*1000){ toast("時間が空いたので、会話は止めたままです"); return; }
+  if(r.o&&r.o.inp&&!document.body.contains(r.o.inp)){ toast("窓が閉じていたので、会話は止めたままです"); return; }
+  if(typeof vlog==="function") vlog("visible: talk resume");
+  toast("会話を続けます");   /* 声の合図は talkStart の「録音します」（重ねて喋ると聞き取ってしまう） */
+  setTimeout(function(){ if(!TALK.on&&document.visibilityState==="visible") talkStart(r.o,r.scope); },500);
 });
 function deskGrow(t){
   if(!t||t.tagName!=="TEXTAREA") return;
@@ -2894,12 +2941,23 @@ function deskInputRow(cls,ids,ph,scope,sendFn){
   var inp=el("textarea"); inp.id=ids[0]; inp.rows=1; inp.setAttribute("enterkeyhint","send"); inp.setAttribute("maxlength","4000");
   inp.setAttribute("autocomplete","off"); inp.placeholder=ph;
   var go=el("button","btn pri","送る"); if(ids[2]) go.id=ids[2];
-  var o={inp:inp,btn:null,onSend:sendFn,onLive:scope==="general"?deskShowLive:null};
+  var o={inp:inp,btn:null,onLive:scope==="general"?deskShowLive:null,att:[],up:0};
+  /* 写真（2026-11-18）：送るときに付いている写真を一緒に渡し、欄から外す。写真だけでも送れる */
+  o.onSend=function(text,tries){
+    /* 上げている途中の写真があれば、上がり終わるまで待ってから送る（声で「以上」と言ったときも落とさない。最大60秒） */
+    if(o.up&&(tries||0)<120){ if(!tries) toast("写真を上げ終わったら送ります"); setTimeout(function(){ o.onSend(text,(tries||0)+1); },500); return; }
+    var imgs=o.att.filter(function(a){ return a.path; }).map(function(a){ return a.path; });
+    o.att.forEach(function(a){ try{ URL.revokeObjectURL(a.url); }catch(e){} }); o.att=[]; deskAttDraw(o);
+    if(imgs.length) text+="（写真"+imgs.length+"枚を添付）";
+    sendFn(text,imgs);
+  };
   function send(){
-    var v=inp.value.trim(); if(!v||S.desk.sending) return;
+    var v=inp.value.trim();
+    if(!v&&o.att.length) v="この写真を見てください";
+    if(!v||S.desk.sending) return;
     inp.value=""; deskGrow(inp);
     if(MIC.on&&MIC.o===o) micEnd();
-    sendFn(v);
+    o.onSend(v);
   }
   inp.oninput=function(){ deskGrow(inp); if(scope==="general") S.desk.draft=inp.value; };
   inp.onkeydown=function(e){ if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){ e.preventDefault(); send(); } };
@@ -2920,8 +2978,64 @@ function deskInputRow(cls,ids,ph,scope,sendFn){
     };
     row.appendChild(mic); row.appendChild(tk);
   }
+  /* 📷：その場で撮る・ギャラリーから選ぶ（Android はどちらか選べる）。4枚まで */
+  var file=el("input"); file.type="file"; file.accept="image/*"; file.multiple=true; file.style.display="none";
+  var cam=el("button","btn mic deskcam","📷"); cam.setAttribute("aria-label","写真を付ける"); cam.title="写真を付ける（撮る・選ぶ。4枚まで）";
+  cam.onclick=function(){ file.value=""; DESK_PICKING=Date.now(); file.click(); };
+  file.onchange=function(){ Array.prototype.slice.call(file.files||[]).forEach(function(f){ deskAttAdd(o,f); }); };
+  row.insertBefore(cam,inp.nextSibling); row.appendChild(file);
   row.appendChild(go);
-  return {row:row, inp:inp, o:o};
+  var wrap=el("div","deskinwrap"); var strip=el("div","deskatt"); o.strip=strip;
+  wrap.appendChild(strip); wrap.appendChild(row);
+  return {row:wrap, inp:inp, o:o};
+}
+/* ---- 写真の添付（2026-11-18 松尾さん「その場で撮った写真を添付したい」）
+   スマホで長い辺 1600px の JPEG に縮めてから、非公開の入れ物 desk-attach の「本人ID/日付/」へ入れる。
+   置き場所を依頼の options.images に書くと、自宅PCの worker が受け取って Claude に見せる */
+function deskAttDraw(o){
+  if(!o.strip) return;
+  o.strip.textContent="";
+  o.att.forEach(function(a,i){
+    var t=el("span","attchip"+(a.path?"":" up"));
+    var im=el("img"); im.src=a.url; im.alt="添付の写真"; t.appendChild(im);
+    if(a.path){ var x=el("button","attx","×"); x.setAttribute("aria-label","この写真を外す");
+      x.onclick=function(){ o.att.splice(i,1); try{ URL.revokeObjectURL(a.url); }catch(e){} deskAttDraw(o); }; t.appendChild(x); }
+    o.strip.appendChild(t);
+  });
+}
+function deskShrink(file){
+  return new Promise(function(ok,ng){
+    var url=URL.createObjectURL(file), im=new Image();
+    im.onload=function(){
+      var s=Math.min(1,1600/Math.max(im.naturalWidth,im.naturalHeight));
+      var c=document.createElement("canvas"); c.width=Math.round(im.naturalWidth*s); c.height=Math.round(im.naturalHeight*s);
+      c.getContext("2d").drawImage(im,0,0,c.width,c.height);
+      c.toBlob(function(b){ b?ok({blob:b,url:url}):ng(new Error("縮められませんでした")); },"image/jpeg",0.82);
+    };
+    im.onerror=function(){ ng(new Error("画像を読めませんでした")); };
+    im.src=url;
+  });
+}
+function deskAttAdd(o,file){
+  if(!/^image\//.test(file.type||"")){ toast("画像だけ付けられます"); return; }
+  if(o.att.length>=4){ toast("写真は4枚までです"); return; }
+  if(!S.sess||!S.sess.user){ toast("ログインし直してください"); return; }
+  var a={url:"",path:null}; o.att.push(a); o.up++;
+  var d=new Date(), day=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
+  var path=S.sess.user.id+"/"+day+"/"+deskUuid()+".jpg";
+  var fresh=(S.sess.expires_at||0)-Date.now()/1000<120?refresh():Promise.resolve(true);
+  deskShrink(file).then(function(r){
+    a.url=r.url; deskAttDraw(o);
+    return fresh.then(function(){
+      return api("/storage/v1/object/desk-attach/"+path,{method:"POST",body:r.blob,headers:{"Content-Type":"image/jpeg","x-upsert":"false"}});
+    });
+  }).then(function(res){
+    if(!res.ok) return res.text().then(function(t){ throw new Error("HTTP "+res.status+" "+String(t).slice(0,80)); });
+    a.path=path; deskAttDraw(o); toast("写真を付けました");
+  }).catch(function(e){
+    o.att=o.att.filter(function(x){ return x!==a; }); deskAttDraw(o);
+    toast("写真を上げられませんでした（"+(e&&e.message||"通信できません")+"）");
+  }).then(function(){ o.up--; });
 }
 
 /* 骨組み。ここは render() のときだけ作る。読み直しでは作り直さない */
@@ -2937,13 +3051,13 @@ function renderDesk(L2){
   var use=el("div","deskuse"); use.id="deskUse"; left.appendChild(use);
   var chat=el("div","deskchat"); chat.id="deskChat"; left.appendChild(chat);
   var to=el("div","deskto"); to.id="deskTo"; left.appendChild(to);
-  var ir=deskInputRow("deskin",["deskIn","deskMic","deskGo"],"話しかける","general",function(v){
+  var ir=deskInputRow("deskin",["deskIn","deskMic","deskGo"],"話しかける","general",function(v,imgs){
     S.desk.draft="";
     if(!V.on) voiceStart();   /* 2026-11-07 送ったら、返事は［読み上げ］を押さなくても「まお」の声で流す */
     var reply=S.desk.reply;
     if(reply){ S.desk.reply=null; drawDeskTo(); }   /* 返事先は1回ごと。次はまた総合窓口へ */
     if(!reply&&S.desk.gid){ S.desk.outbox.push({text:v}); drawDeskChat(); }
-    deskSubmit(v,reply||S.desk.gid||null).then(function(){
+    deskSubmit(v,reply||S.desk.gid||null,imgs).then(function(){
       if(S.desk.pending&&S.desk.pending.text===v) S.desk.outbox=S.desk.outbox.filter(function(o){ return o.text!==v; });
       drawDeskChat();
     });
@@ -2951,7 +3065,7 @@ function renderDesk(L2){
   ir.inp.value=S.desk.draft||"";
   left.appendChild(ir.row);
   var opt=el("div","deskopt"); opt.id="deskOpt"; left.appendChild(opt);
-  left.appendChild(el("p","note","担当は Obsidian と Projects のファイルを書いて git で公開、Gmail（「送って」と言ったときだけ送る）、Google カレンダーと Drive、タスクと予定の書き換え（その場で反映・カードの［元に戻す］で戻せる）ができます。画面の操作・プログラム・会社のもの・消す・支払うはできません。できないことは総合窓口が「やってほしいこと」のメモに残します。カードは窓の［🗑 消す］か「8番を消して」で消せます。返事は5秒おきに読み直します。"));
+  left.appendChild(el("p","note","担当は Obsidian と Projects のファイルを書いて git で公開、Gmail（「送って」と言ったときだけ送る）、Google カレンダーと Drive、タスクと予定の書き換え（その場で反映・カードの［元に戻す］で戻せる）ができます。📷 で写真を付けられます（4枚まで）。Fold5・PC の画面操作、mytask の公開、PC のコマンドは、スマホに出る［許可］で OK したときだけ動きます。消す・支払うはできません。できないことは総合窓口が「やってほしいこと」のメモに残します。カードは窓の［🗑 消す］か「8番を消して」で消せます。返事は5秒おきに読み直します。"));
   var cards=el("div","deskcards"); cards.id="deskCards"; right.appendChild(cards);
   w.appendChild(left); w.appendChild(right);
   L2.appendChild(w);
@@ -3240,9 +3354,9 @@ function openDeskSheet(c,isNext){
   var pb=deskPropBox(c); if(pb) body.appendChild(pb);
   body.appendChild(deskTaskBox(c));
   /* 第3段：窓の中で続けて話す（同じ案件へ）。第4段：🎤・💬 で担当と直接話す。作業中でも送れる（終わってから順に動く） */
-  var cr=deskInputRow("dreply deskin",["deskSheetIn",null,null],"この担当に直接話す（"+(c.no!=null?c.no+"番":"この案件")+"）",c.id,function(v){
+  var cr=deskInputRow("dreply deskin",["deskSheetIn",null,null],"この担当に直接話す（"+(c.no!=null?c.no+"番":"この案件")+"）",c.id,function(v,imgs){
     if(!V.on) voiceStart();
-    deskSubmit(v,c.id);
+    deskSubmit(v,c.id,imgs);
   });
   body.appendChild(cr.row);
   var ev=el("div","devs"); ev.id="deskEv"; ev.appendChild(el("p","note","経過を読み込み中…"));
@@ -3419,7 +3533,7 @@ function voiceStop(){
 function voicePoll(){
   clearTimeout(V.timer);
   if(!V.on||V.last===null) return;
-  api("/rest/v1/voice_reply?select=id,speech,audio_b64,audio_mime,case_id&id=gt."+V.last+"&order=id.asc&limit=10")
+  api("/rest/v1/voice_reply?select=id,speech,audio_b64,audio_mime,case_id,source&id=gt."+V.last+"&order=id.asc&limit=10")
     .then(function(r){ return r.ok?r.json():[]; })
     .then(function(rows){
       (rows||[]).forEach(function(x){ V.last=Math.max(V.last,x.id); V.queue.push(x); });
@@ -3433,6 +3547,13 @@ function voiceNext(){
   /* 窓口（第4段）：話している途中には割り込まない。流している間はマイクを休ませる（まおの声を聞き取らない） */
   if(typeof micBusy==="function"&&micBusy()){ clearTimeout(V.defer); V.defer=setTimeout(voiceNext,1000); return; }
   var x=V.queue.shift(), fin=false; V.playing=true; V.cur=x;
+  /* 2026-11-18 松尾さん「同じことを繰り返す」：総合窓口と会話している間は、担当カードの報告を全部は読まない。
+     「13番の報告が届きました」とだけ言う（中身は総合窓口に「13番の報告」と聞けば、係がまとめて答える） */
+  if(TALK.on&&x.source==="desk"&&!x.card){
+    var mNo=String(x.speech||"").match(/^(\d+)番/);
+    x=Object.assign({},x,{audio_b64:null,speech:(mNo?mNo[1]+"番の":"担当の")+"報告が届きました。"});
+    V.cur=x;
+  }
   if(typeof micPause==="function") micPause();
   var guard=null;
   vlog("play "+x.id+" "+(x.case_id||"-")+(x.audio_b64?" 声":" 文"));
@@ -3448,6 +3569,7 @@ function voiceNext(){
     voiceNext();
   }
   function byPhone(){
+    clearTimeout(guard);   /* スマホの声に切り替えたら、まおの声の長さの保険は使わない */
     if(!window.speechSynthesis||!window.SpeechSynthesisUtterance) return done();
     try{
       var u=new SpeechSynthesisUtterance(String(x.speech||"").slice(0,4000));
@@ -3460,10 +3582,17 @@ function voiceNext(){
     V.audio=V.audio||new Audio();
     V.audio.onended=done;
     V.audio.onerror=byPhone;
-    /* 保険：終わりの合図が来なくても、声の長さ＋2秒で終わったことにする（会話モードが止まったままにならないように） */
+    /* 保険：終わりの合図が来なくても、声の長さ＋5秒で終わったことにする（会話モードが止まったままにならないように）。
+       2026-11-18：Android は ogg の長さを読めず（Infinity）、前は「60秒」とみなしていたので、60秒を超える返事が
+       途中でマイクと「録音します」に切られていた（406字・約62秒の返事で発生）。長さはデータの大きさから見積もる
+       （PC 側は 24kbps の opus。大きさ÷3KB/秒）。読めた長さとの大きい方を使う */
+    var est=x.audio_b64.length*3/4/3000;
+    guard=setTimeout(function(){ vlog("guard0 "+x.id); done(); },est*1000+8000);   /* 長さの知らせも来ないとき */
     V.audio.onloadedmetadata=function(){
       var d=V.audio.duration; clearTimeout(guard);
-      guard=setTimeout(function(){ vlog("guard "+x.id); done(); },((isFinite(d)&&d>0)?d:60)*1000+2000);
+      var sec=Math.max((isFinite(d)&&d>0)?d:0,est);
+      vlog("長さ "+(isFinite(d)?d.toFixed(1):"不明")+" 見積 "+est.toFixed(1));
+      guard=setTimeout(function(){ vlog("guard "+x.id); done(); },sec*1000+5000);
     };
     V.audio.src="data:"+(x.audio_mime||"audio/ogg")+";base64,"+x.audio_b64;
     V.audio.play().catch(function(e){ vlog("play失敗 "+(e&&e.name)); byPhone(); });
